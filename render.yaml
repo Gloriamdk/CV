@@ -3,12 +3,14 @@ services:
     name: projet-teko
     env: python
     plan: free
-    buildCommand: pip install -r requirements.txt && python manage.py migrate
-    startCommand: gunicorn cv_project.wsgi:application
+    buildCommand: pip install -r requirements.txt && python manage.py collectstatic --no-input && python manage.py migrate
+    startCommand: gunicorn cv_project.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.11"
       - key: DJANGO_SECRET_KEY
         generateValue: true
       - key: DEBUG
-        value: "True"
+        value: "False"
       - key: ALLOWED_HOSTS
-        value: ".onrender.com"
+        value: ".onrender.com,127.0.0.1,localhost"
