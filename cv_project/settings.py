@@ -5,13 +5,20 @@ import importlib.util
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-secret-key-change-in-production")
-DEBUG = os.getenv("DEBUG", "True").lower() == "true"
+DEBUG = os.getenv("DEBUG", "False").lower() == "true"
 ALLOWED_HOSTS = [host.strip() for host in os.getenv("ALLOWED_HOSTS", "").split(",") if host.strip()]
 RENDER_EXTERNAL_HOSTNAME = os.getenv("RENDER_EXTERNAL_HOSTNAME")
+VERCEL_URL = os.getenv("VERCEL_URL")
 if RENDER_EXTERNAL_HOSTNAME:
     ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
+if VERCEL_URL:
+    ALLOWED_HOSTS.append(VERCEL_URL)
 if not ALLOWED_HOSTS:
-    ALLOWED_HOSTS = ["127.0.0.1", "localhost"]
+    ALLOWED_HOSTS = ["127.0.0.1", "localhost", ".vercel.app", ".onrender.com"]
+else:
+    # Keep platform defaults even when custom hosts are provided.
+    ALLOWED_HOSTS.extend([".vercel.app", ".onrender.com", "127.0.0.1", "localhost"])
+ALLOWED_HOSTS = sorted(set(ALLOWED_HOSTS))
 
 if not DEBUG and SECRET_KEY == "dev-secret-key-change-in-production":
     raise ValueError("DJANGO_SECRET_KEY must be set in production.")
@@ -102,6 +109,10 @@ STORAGES = {
 CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in os.getenv("CSRF_TRUSTED_ORIGINS", "").split(",") if origin.strip()]
 if RENDER_EXTERNAL_HOSTNAME:
     CSRF_TRUSTED_ORIGINS.append(f"https://{RENDER_EXTERNAL_HOSTNAME}")
+if VERCEL_URL:
+    CSRF_TRUSTED_ORIGINS.append(f"https://{VERCEL_URL}")
+CSRF_TRUSTED_ORIGINS.extend(["https://*.vercel.app", "https://*.onrender.com"])
+CSRF_TRUSTED_ORIGINS = sorted(set(CSRF_TRUSTED_ORIGINS))
 
 if not DEBUG:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
