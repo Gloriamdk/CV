@@ -9,14 +9,17 @@ DEBUG = os.getenv("DEBUG", "False").lower() == "true"
 ALLOWED_HOSTS = [host.strip() for host in os.getenv("ALLOWED_HOSTS", "").split(",") if host.strip()]
 RENDER_EXTERNAL_HOSTNAME = os.getenv("RENDER_EXTERNAL_HOSTNAME")
 VERCEL_URL = os.getenv("VERCEL_URL")
+IS_VERCEL = os.getenv("VERCEL") == "1" or bool(VERCEL_URL)
 if RENDER_EXTERNAL_HOSTNAME:
     ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
 if VERCEL_URL:
     ALLOWED_HOSTS.append(VERCEL_URL)
-if not ALLOWED_HOSTS:
+if IS_VERCEL:
+    # Vercel preview domains are dynamic; allow all hosts on Vercel runtime.
+    ALLOWED_HOSTS = ["*"]
+elif not ALLOWED_HOSTS:
     ALLOWED_HOSTS = ["127.0.0.1", "localhost", ".vercel.app", ".onrender.com"]
 else:
-    # Keep platform defaults even when custom hosts are provided.
     ALLOWED_HOSTS.extend([".vercel.app", ".onrender.com", "127.0.0.1", "localhost"])
 ALLOWED_HOSTS = sorted(set(ALLOWED_HOSTS))
 
