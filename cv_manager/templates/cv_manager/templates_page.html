@@ -1,0 +1,245 @@
+{% load static %}
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Choisir un template</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@600;700&family=Poppins:wght@500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'cv_manager/styles.css' %}" />
+  </head>
+  <body class="templates-body">
+    <main class="layout templates-layout">
+      <section class="panel templates-left">
+        <h1>Choisir un template</h1>
+        <p>Selectionnez un style premium et exportez votre CV en PDF.</p>
+
+        <div class="block">
+          <div class="template-list">
+            <button type="button" class="template-card active" data-template="simple">
+              <span class="template-name">Simple</span>
+              <span class="template-desc">Clair, epure, lisible.</span>
+            </button>
+            <button type="button" class="template-card" data-template="modern">
+              <span class="template-name">Modern</span>
+              <span class="template-desc">Accent couleur et structure forte.</span>
+            </button>
+            <button type="button" class="template-card" data-template="elegant">
+              <span class="template-name">Elegant</span>
+              <span class="template-desc">Look editorial premium.</span>
+            </button>
+          </div>
+          <label for="profilePhotoInput">Photo de profil</label>
+          <input id="profilePhotoInput" type="file" accept=".png,.jpg,.jpeg,.webp" />
+        </div>
+
+        <div class="block">
+          <input id="cvTitle" type="text" value="Mon CV" />
+          <button id="exportPdfBtn" type="button">Exporter PDF</button>
+          <button id="backBtn" type="button">Retour edition</button>
+        </div>
+
+        <pre id="status"></pre>
+      </section>
+
+      <section class="panel templates-right">
+        <h2>Preview</h2>
+        <div id="cvPreview" class="cv-preview"></div>
+      </section>
+    </main>
+
+    <script>
+      const state = {
+        template: "simple",
+        profile_photo_data_url: "",
+        cv: {},
+      };
+
+      function showStatus(message, isError = false) {
+        const el = document.getElementById("status");
+        el.textContent = message;
+        el.style.color = isError ? "#b10020" : "#124";
+      }
+
+      function asString(value) {
+        return typeof value === "string" ? value : "";
+      }
+
+      function asStringArray(value) {
+        if (!Array.isArray(value)) return [];
+        return value.filter((x) => typeof x === "string").map((x) => x.trim()).filter(Boolean);
+      }
+
+      function esc(value) {
+        return asString(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      }
+
+      function defaultCv() {
+        return {
+          personal: { firstName: "", lastName: "", email: "", phone: "", city: "", linkedin: "" },
+          summary: "",
+          skills: [],
+          experience: [],
+          education: [],
+        };
+      }
+
+      function loadCv() {
+        try {
+          const raw = localStorage.getItem("cv_preview_data");
+          const title = localStorage.getItem("cv_preview_title");
+          const savedTemplate = localStorage.getItem("cv_selected_template");
+          state.cv = raw ? JSON.parse(raw) : defaultCv();
+          if (title) document.getElementById("cvTitle").value = title;
+          if (savedTemplate && ["simple", "modern", "elegant"].includes(savedTemplate)) {
+            state.template = savedTemplate;
+          }
+        } catch (_) {
+          state.cv = defaultCv();
+        }
+
+        document.querySelectorAll(".template-card").forEach((b) => {
+          b.classList.toggle("active", b.dataset.template === state.template);
+        });
+      }
+
+      function renderPreview() {
+        const el = document.getElementById("cvPreview");
+        const p = state.cv.personal || {};
+        const skills = asStringArray(state.cv.skills);
+        const exp = Array.isArray(state.cv.experience) ? state.cv.experience : [];
+        const edu = Array.isArray(state.cv.education) ? state.cv.education : [];
+        const photoHtml = state.profile_photo_data_url
+          ? `<img class="profile-photo" src="${state.profile_photo_data_url}" alt="Photo profil" />`
+          : `<div class="profile-photo profile-photo-placeholder">Photo</div>`;
+        const fullName = esc(`${p.firstName || ""} ${p.lastName || ""}`.trim() || "Nom du candidat");
+        const contactLine = [p.city, p.phone, p.email, p.linkedin].filter(Boolean).map(esc).join(" | ") || "Contact non renseigne";
+        const skillsHtml = skills.length ? skills.map((s) => `<span class="chip">${esc(s)}</span>`).join("") : "<em>Non renseigne</em>";
+        const expHtml = exp.length
+          ? exp
+              .map(
+                (e) => `<div class="preview-item"><strong>${esc(e.title || "")}</strong> - ${esc(e.company || "")}<div class="preview-meta">${esc(e.location || "")} ${esc(e.startDate || "")} ${esc(e.endDate || "")}</div></div>`
+              )
+              .join("")
+          : "<em>Aucune experience detectee</em>";
+        const eduHtml = edu.length
+          ? edu
+              .map(
+                (e) => `<div class="preview-item"><strong>${esc(e.degree || "")}</strong> - ${esc(e.school || "")}<div class="preview-meta">${esc(e.location || "")} ${esc(e.startDate || "")} ${esc(e.endDate || "")}</div></div>`
+              )
+              .join("")
+          : "<em>Aucune formation detectee</em>";
+
+        el.className = `cv-preview cv-template-${state.template === "simple" ? "classic" : state.template}`;
+        if (state.template === "modern") {
+          el.innerHTML = `
+            <div class="preview-modern-grid">
+              <aside class="preview-modern-side">
+                <div class="preview-modern-photo">${photoHtml}</div>
+                <h5>Contact</h5>
+                <p>${contactLine}</p>
+                <h5>Competences</h5>
+                <div class="chips">${skillsHtml}</div>
+              </aside>
+              <div class="preview-modern-main">
+                <div class="preview-head"><div><h4>${fullName}</h4></div></div>
+                <div class="preview-section"><h5>Profil</h5><p>${esc(state.cv.summary || "Non renseigne")}</p></div>
+                <div class="preview-section"><h5>Experiences</h5>${expHtml}</div>
+                <div class="preview-section"><h5>Formations</h5>${eduHtml}</div>
+              </div>
+            </div>
+          `;
+          return;
+        }
+
+        if (state.template === "elegant") {
+          el.innerHTML = `
+            <div class="preview-elegant-head">
+              ${photoHtml}
+              <h4>${fullName}</h4>
+              <div class="preview-contact">${contactLine}</div>
+            </div>
+            <div class="preview-section"><h5>Profil</h5><p>${esc(state.cv.summary || "Non renseigne")}</p></div>
+            <div class="preview-elegant-grid">
+              <div class="preview-section"><h5>Experiences</h5>${expHtml}</div>
+              <div class="preview-section"><h5>Formations</h5>${eduHtml}</div>
+            </div>
+            <div class="preview-section"><h5>Competences</h5><div class="chips">${skillsHtml}</div></div>
+          `;
+          return;
+        }
+
+        el.innerHTML = `
+          <div class="preview-head">${photoHtml}<div><h4>${fullName}</h4><div class="preview-contact">${contactLine}</div></div></div>
+          <div class="preview-section"><h5>Profil</h5><p>${esc(state.cv.summary || "Non renseigne")}</p></div>
+          <div class="preview-section"><h5>Experiences</h5>${expHtml}</div>
+          <div class="preview-section"><h5>Competences</h5><div class="chips">${skillsHtml}</div></div>
+          <div class="preview-section"><h5>Formations</h5>${eduHtml}</div>
+        `;
+      }
+
+      async function exportPdf() {
+        const title = document.getElementById("cvTitle").value || "Mon CV";
+        showStatus("Generation PDF en cours...");
+        try {
+          const response = await fetch("/api/export-pdf", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ cv: state.cv, template: state.template, title }),
+          });
+          if (!response.ok) {
+            const contentType = response.headers.get("content-type") || "";
+            if (contentType.includes("application/json")) {
+              const data = await response.json();
+              throw new Error(data.detail || `Export failed (${response.status})`);
+            }
+            const errorText = (await response.text()).slice(0, 220).replace(/\s+/g, " ");
+            throw new Error(`Export failed (${response.status}): ${errorText}`);
+          }
+          const blob = await response.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `${title.replace(/\s+/g, "_")}_${state.template}.pdf`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+          showStatus("PDF exporte.");
+        } catch (err) {
+          showStatus(`Erreur export: ${err.message || err}`, true);
+        }
+      }
+
+      document.querySelectorAll(".template-card").forEach((btn) => {
+        btn.onclick = () => {
+          document.querySelectorAll(".template-card").forEach((b) => b.classList.remove("active"));
+          btn.classList.add("active");
+          state.template = btn.dataset.template || "simple";
+          localStorage.setItem("cv_selected_template", state.template);
+          showStatus(`Template selectionne: ${state.template}`);
+          renderPreview();
+        };
+      });
+
+      document.getElementById("profilePhotoInput").onchange = (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          state.profile_photo_data_url = String(reader.result || "");
+          renderPreview();
+        };
+        reader.readAsDataURL(file);
+      };
+
+      document.getElementById("exportPdfBtn").onclick = exportPdf;
+      document.getElementById("backBtn").onclick = () => (window.location.href = "/");
+
+      loadCv();
+      renderPreview();
+    </script>
+  </body>
+</html>
