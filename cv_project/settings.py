@@ -23,7 +23,7 @@ else:
     ALLOWED_HOSTS.extend([".vercel.app", ".onrender.com", "127.0.0.1", "localhost"])
 ALLOWED_HOSTS = sorted(set(ALLOWED_HOSTS))
 
-if not DEBUG and SECRET_KEY == "dev-secret-key-change-in-production":
+if not DEBUG and not IS_VERCEL and SECRET_KEY == "dev-secret-key-change-in-production":
     raise ValueError("DJANGO_SECRET_KEY must be set in production.")
 
 INSTALLED_APPS = [
@@ -102,9 +102,13 @@ STORAGES = {
     },
     "staticfiles": {
         "BACKEND": (
+            "django.contrib.staticfiles.storage.StaticFilesStorage"
+            if IS_VERCEL
+            else (
             "whitenoise.storage.CompressedManifestStaticFilesStorage"
             if importlib.util.find_spec("whitenoise")
             else "django.contrib.staticfiles.storage.StaticFilesStorage"
+            )
         ),
     },
 }
