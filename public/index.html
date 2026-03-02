@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MyCV - Gestion et amelioration de CV</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="layout">
+      <header class="hero">
+        <h1>MyCV</h1>
+        <p>Upload ton CV, detecte les sections, ameliore le contenu et garde un historique de versions.</p>
+      </header>
+
+      <section class="card">
+        <h2>1) Authentification</h2>
+        <div class="grid2">
+          <label>Email <input id="authEmail" type="email" placeholder="nom@email.com" /></label>
+          <label>Nom (inscription) <input id="authName" type="text" placeholder="Ton nom" /></label>
+          <label>Mot de passe <input id="authPassword" type="password" placeholder="minimum 6 caracteres" /></label>
+          <label>Focus IA par defaut <input id="improveFocus" type="text" placeholder="ex: ATS + impact resultats" /></label>
+        </div>
+        <div class="row">
+          <button id="registerBtn" type="button">S'inscrire</button>
+          <button id="loginBtn" type="button">Se connecter</button>
+          <button id="logoutBtn" type="button" class="secondary">Se deconnecter</button>
+        </div>
+        <p id="authStatus" class="status">Non connecte.</p>
+      </section>
+
+      <section class="card">
+        <h2>2) Upload CV</h2>
+        <p class="hint">Formats recommandes: PDF. Si quota IA depasse, l'app passe en mode fallback.</p>
+        <div class="row">
+          <input id="cvFile" type="file" accept=".pdf,.doc,.docx,.txt" />
+          <button id="analyzeBtn" type="button">Analyser avec Google AI</button>
+        </div>
+        <p id="status" class="status">En attente d'un fichier...</p>
+      </section>
+
+      <section class="card">
+        <h2>3) Edition CV</h2>
+        <div class="row">
+          <label class="template-label">Template CV
+            <select id="templateSelect">
+              <option value="professional">Professionnel</option>
+              <option value="modern">Moderne</option>
+              <option value="minimal">Minimal</option>
+            </select>
+          </label>
+        </div>
+        <div class="grid2">
+          <label>Nom complet <input id="fullName" type="text" /></label>
+          <label>Email <input id="email" type="email" /></label>
+          <label>Telephone <input id="phone" type="text" /></label>
+          <label>Localisation <input id="location" type="text" /></label>
+          <label>LinkedIn <input id="linkedin" type="text" /></label>
+          <label>Site web <input id="website" type="text" /></label>
+        </div>
+
+        <label>Profil<textarea id="profile" rows="4"></textarea></label>
+        <label>Formation (1 ligne = 1 entree)<textarea id="education" rows="5"></textarea></label>
+        <label>Experience (1 ligne = 1 entree)<textarea id="experience" rows="5"></textarea></label>
+        <label>Competences (1 ligne = 1 entree)<textarea id="skills" rows="5"></textarea></label>
+        <label>Projets (1 ligne = 1 entree)<textarea id="projects" rows="5"></textarea></label>
+        <label>Certifications (1 ligne = 1 entree)<textarea id="certifications" rows="4"></textarea></label>
+        <label>Langues (1 ligne = 1 entree)<textarea id="languages" rows="4"></textarea></label>
+        <label>Centres d'interet (1 ligne = 1 entree)<textarea id="interests" rows="4"></textarea></label>
+        <label>Autre (1 ligne = 1 entree)<textarea id="other" rows="4"></textarea></label>
+
+        <div class="row">
+          <input id="saveNote" type="text" class="note" placeholder="Note de version (optionnel)" />
+          <button id="improveBtn" type="button">Ameliorer avec IA</button>
+          <button id="saveBtn" type="button">Sauvegarder version</button>
+          <button id="jsonBtn" type="button" class="secondary">Telecharger JSON</button>
+          <button id="docBtn" type="button" class="secondary">Exporter Word (.doc)</button>
+          <button id="pdfBtn" type="button" class="secondary">Exporter PDF</button>
+        </div>
+        <p id="improveStatus" class="status muted">Aucune suggestion pour l'instant.</p>
+      </section>
+
+      <section class="card">
+        <h2>4) Historique</h2>
+        <div class="row">
+          <button id="refreshHistoryBtn" type="button">Rafraichir historique</button>
+        </div>
+        <div id="historyList" class="history"></div>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
