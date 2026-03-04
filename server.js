@@ -354,9 +354,16 @@ function buildFallbackCvData({ base64Data }) {
 }
 
 async function callGoogleJson({ prompt, payloadData, responseMimeType = "application/json" }) {
-  const apiKey = process.env.GOOGLE_AI_API_KEY;
-  if (!apiKey) throw new Error("La variable GOOGLE_AI_API_KEY est manquante dans .env.");
-  const models = [...new Set([process.env.GOOGLE_AI_MODEL || "gemini-2.0-flash", "gemini-2.0-flash"])];
+  const apiKey =
+    process.env.GOOGLE_AI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || "";
+  if (!apiKey) {
+    throw new Error("Cle Google AI manquante. Configure GOOGLE_AI_API_KEY (ou GOOGLE_API_KEY / GEMINI_API_KEY).");
+  }
+  const configuredModels = String(process.env.GOOGLE_AI_MODELS || process.env.GOOGLE_AI_MODEL || "")
+    .split(",")
+    .map((m) => m.trim())
+    .filter(Boolean);
+  const models = [...new Set([...configuredModels, "gemini-2.5-flash", "gemini-2.0-flash"])];
   let lastErr = null;
 
   for (const model of models) {
@@ -375,10 +382,16 @@ async function callGoogleJson({ prompt, payloadData, responseMimeType = "applica
     });
     if (!response.ok) {
       const bodyText = await response.text();
-      const err = new Error(`Google AI API error (${response.status}): ${bodyText.slice(0, 400)}`);
+      let details = bodyText;
+      try {
+        const parsed = JSON.parse(bodyText);
+        details = parsed?.error?.message || parsed?.message || bodyText;
+      } catch {}
+      const err = new Error(`Google AI API error (${response.status}) [${model}]: ${String(details).slice(0, 400)}`);
       err.statusCode = response.status;
+      err.model = model;
       lastErr = err;
-      if (response.status === 429) continue;
+      if (response.status === 429 || response.status === 404 || response.status === 503) continue;
       throw err;
     }
     const result = await response.json();
@@ -607,9 +620,17 @@ const server = http.createServer(async (req, res) => {
             fallback: true,
           });
         }
+        const statusCode = Number(error?.statusCode || 0);
+        const warningByStatus = {
+          400: "Google AI a refuse la requete (400). Verifie le format du fichier (PDF recommande) et sa taille.",
+          401: "Google AI a refuse la cle API (401). Verifie GOOGLE_AI_API_KEY / GOOGLE_API_KEY.",
+          403: "Google AI a refuse l'acces (403). Verifie API activee, projet et billing Google.",
+          404: "Modele Google AI introuvable (404). Verifie GOOGLE_AI_MODEL/GOOGLE_AI_MODELS.",
+        };
         return sendJson(res, 200, {
           message: "Analyse IA indisponible. Passage en mode fallback.",
           warning:
+            warningByStatus[statusCode] ||
             "Google AI a retourne une erreur. Verifie la cle API, le projet Google, et billing. Le mode fallback est applique pour continuer.",
           aiError: String(error?.message || "unknown"),
           cvData,
@@ -701,7 +722,9 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, HOST, () => {
-  const keyInfo = process.env.GOOGLE_AI_API_KEY ? "configured" : "missing";
+  const keyInfo = process.env.GOOGLE_AI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY ? "configured" : "missing";
+  const modelInfo = process.env.GOOGLE_AI_MODELS || process.env.GOOGLE_AI_MODEL || "default";
   console.log(`MyCV server running: http://${HOST}:${PORT}`);
   console.log(`GOOGLE_AI_API_KEY: ${keyInfo}`);
+  console.log(`GOOGLE_AI_MODEL(S): ${modelInfo}`);
 });

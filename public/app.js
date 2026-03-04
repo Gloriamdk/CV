@@ -332,7 +332,13 @@ async function analyzeFile() {
       state.cvData.candidate.photoDataUrl = previousPhoto;
     }
     syncStateToForm();
-    setStatus(data.fallback ? data.warning || "Analyse en fallback." : `Analyse terminee pour ${file.name}.`, Boolean(data.fallback));
+    if (data.fallback) {
+      const warning = data.warning || "Analyse en fallback.";
+      const details = data.aiError ? ` Detail: ${String(data.aiError).slice(0, 220)}` : "";
+      setStatus(`${warning}${details}`, true);
+    } else {
+      setStatus(`Analyse terminee pour ${file.name}.`, false);
+    }
   } catch (error) {
     setStatus(error.message || "Erreur d'analyse.", true);
   }
