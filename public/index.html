@@ -41,14 +41,36 @@
 
       <section class="card">
         <h2>3) Edition CV</h2>
+        <div class="template-grid">
+          <button id="tplProfessional" type="button" class="template-card" data-template="professional">
+            <strong>Gradient Burst</strong>
+            <span>Colonnes dynamiques, accent couleur et motifs doux.</span>
+          </button>
+          <button id="tplModern" type="button" class="template-card" data-template="modern">
+            <strong>Split Accent</strong>
+            <span>Sidebar texturée + contenus colorés inspirés des templates Canva.</span>
+          </button>
+          <button id="tplMinimal" type="button" class="template-card" data-template="minimal">
+            <strong>Mono Grid</strong>
+            <span>Grille modulable, palette monochrome et typographie nette.</span>
+          </button>
+        </div>
         <div class="row">
-          <label class="template-label">Template CV
+          <label class="template-label">Template actif
             <select id="templateSelect">
-              <option value="professional">Professionnel</option>
-              <option value="modern">Moderne</option>
-              <option value="minimal">Minimal</option>
+              <option value="professional">Corporate Clean</option>
+              <option value="modern">Creative Split</option>
+              <option value="minimal">Editorial Minimal</option>
             </select>
           </label>
+          <label class="template-label">Photo CV
+            <input id="photoInput" type="file" accept="image/png,image/jpeg,image/webp" />
+          </label>
+          <img id="photoPreview" class="photo-preview" alt="Apercu photo CV" />
+        </div>
+        <div class="template-preview">
+          <div id="templatePreview" class="preview-window"></div>
+          <div class="preview-hint">Inspire-toi d'un rendu final avant de sauvegarder.</div>
         </div>
         <div class="grid2">
           <label>Nom complet <input id="fullName" type="text" /></label>

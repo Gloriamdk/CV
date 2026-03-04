@@ -102,6 +102,7 @@ function normalizeCvData(data) {
       location: data?.candidate?.location || "",
       linkedin: data?.candidate?.linkedin || "",
       website: data?.candidate?.website || "",
+      photoDataUrl: data?.candidate?.photoDataUrl || "",
     },
     sections: { ...empty, ...(data?.sections || {}) },
   };

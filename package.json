@@ -1,0 +1,17 @@
+{
+  "name": "mycv",
+  "version": "1.0.0",
+  "description": "Application web de gestion et amelioration de CV",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [
+    "cv",
+    "resume"
+  ],
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs"
+}

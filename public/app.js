@@ -10,6 +10,7 @@ const state = {
       location: "",
       linkedin: "",
       website: "",
+      photoDataUrl: "",
     },
     sections: {
       profile: "",
@@ -35,12 +36,18 @@ const el = {
   logoutBtn: document.getElementById("logoutBtn"),
   improveFocus: document.getElementById("improveFocus"),
   file: document.getElementById("cvFile"),
+  photoInput: document.getElementById("photoInput"),
+  photoPreview: document.getElementById("photoPreview"),
   analyzeBtn: document.getElementById("analyzeBtn"),
   saveBtn: document.getElementById("saveBtn"),
   jsonBtn: document.getElementById("jsonBtn"),
   docBtn: document.getElementById("docBtn"),
   pdfBtn: document.getElementById("pdfBtn"),
   templateSelect: document.getElementById("templateSelect"),
+  tplProfessional: document.getElementById("tplProfessional"),
+  tplModern: document.getElementById("tplModern"),
+  tplMinimal: document.getElementById("tplMinimal"),
+  templatePreview: document.getElementById("templatePreview"),
   improveBtn: document.getElementById("improveBtn"),
   refreshHistoryBtn: document.getElementById("refreshHistoryBtn"),
   saveNote: document.getElementById("saveNote"),
@@ -79,15 +86,52 @@ function setImproveStatus(message, isError = false) {
   el.improveStatus.classList.toggle("error", Boolean(isError));
 }
 
+function setTemplateCardActive(selected) {
+  [el.tplProfessional, el.tplModern, el.tplMinimal].forEach((card) => {
+    if (!card) return;
+    card.classList.toggle("active", card.dataset.template === selected);
+  });
+}
+
 function applyTemplate(templateName) {
   const allowed = ["professional", "modern", "minimal"];
   const selected = allowed.includes(templateName) ? templateName : "professional";
   state.template = selected;
   document.body.setAttribute("data-template", selected);
-  if (el.templateSelect.value !== selected) {
-    el.templateSelect.value = selected;
-  }
+  el.templateSelect.value = selected;
+  setTemplateCardActive(selected);
   localStorage.setItem("mycv_template", selected);
+  updateTemplatePreview(selected);
+}
+
+function getPreviewMarkup(template) {
+  const builds = {
+    professional: [
+      { title: "En-tête", text: "Gradient, colonnes, information credentials" },
+      { title: "Formation", text: "LBS, 2024" },
+      { title: "Experience", text: "Design Systems, Chef de projet" },
+    ],
+    modern: [
+      { title: "Profil", text: "Sidebar colorée + sections texturées" },
+      { title: "Experience", text: "Lead product, 3 projets" },
+      { title: "Compétences", text: "UI / UX / Research" },
+    ],
+    minimal: [
+      { title: "Profil", text: "Typo serif, blocs lisibles" },
+      { title: "Experience", text: "Consulting, Finance" },
+      { title: "Competences", text: "Strategy, Analytics" },
+    ],
+  };
+  const stack = builds[template] || builds.professional;
+  const items = stack
+    .map((entry) => `<div class="block"><strong>${entry.title}</strong><span>${entry.text}</span></div>`)
+    .join("");
+  return `<div class="preview-layout">${items}</div>`;
+}
+
+function updateTemplatePreview(template) {
+  if (!el.templatePreview) return;
+  el.templatePreview.innerHTML = getPreviewMarkup(template);
 }
 
 function withAuth(headers = {}) {
@@ -118,6 +162,15 @@ function readFileAsBase64(file) {
   });
 }
 
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Impossible de lire l'image."));
+    reader.readAsDataURL(file);
+  });
+}
+
 function arrayToText(values) {
   return Array.isArray(values) ? values.join("\n") : "";
 }
@@ -139,17 +192,21 @@ function syncStateToForm() {
   el.linkedin.value = c.linkedin || "";
   el.website.value = c.website || "";
   el.profile.value = s.profile || "";
-  el.experience.value = arrayToText(s.experience);
   el.education.value = arrayToText(s.education);
+  el.experience.value = arrayToText(s.experience);
   el.skills.value = arrayToText(s.skills);
   el.projects.value = arrayToText(s.projects);
   el.certifications.value = arrayToText(s.certifications);
   el.languages.value = arrayToText(s.languages);
   el.interests.value = arrayToText(s.interests);
   el.other.value = arrayToText(s.other);
+  const img = c.photoDataUrl || "";
+  el.photoPreview.src = img;
+  el.photoPreview.classList.toggle("visible", Boolean(img));
 }
 
 function syncFormToState() {
+  const photoDataUrl = state.cvData?.candidate?.photoDataUrl || "";
   state.cvData = {
     candidate: {
       fullName: el.fullName.value.trim(),
@@ -158,11 +215,12 @@ function syncFormToState() {
       location: el.location.value.trim(),
       linkedin: el.linkedin.value.trim(),
       website: el.website.value.trim(),
+      photoDataUrl,
     },
     sections: {
       profile: el.profile.value.trim(),
-      experience: textToArray(el.experience.value),
       education: textToArray(el.education.value),
+      experience: textToArray(el.experience.value),
       skills: textToArray(el.skills.value),
       projects: textToArray(el.projects.value),
       certifications: textToArray(el.certifications.value),
@@ -171,6 +229,20 @@ function syncFormToState() {
       other: textToArray(el.other.value),
     },
   };
+}
+
+async function handlePhotoUpload() {
+  const file = el.photoInput.files?.[0];
+  if (!file) return;
+  if (file.size > 3 * 1024 * 1024) return setStatus("Photo trop lourde (max 3MB).", true);
+  try {
+    const dataUrl = await readFileAsDataUrl(file);
+    state.cvData.candidate.photoDataUrl = dataUrl;
+    syncStateToForm();
+    setStatus("Photo ajoutee au CV.");
+  } catch (error) {
+    setStatus(error.message || "Erreur ajout photo.", true);
+  }
 }
 
 async function register() {
@@ -214,9 +286,7 @@ async function login() {
 
 async function logout() {
   try {
-    if (state.token) {
-      await api("/api/auth/logout", { method: "POST", body: JSON.stringify({}) });
-    }
+    if (state.token) await api("/api/auth/logout", { method: "POST", body: JSON.stringify({}) });
   } catch {}
   state.token = "";
   state.user = null;
@@ -243,7 +313,6 @@ async function analyzeFile() {
   const file = el.file.files?.[0];
   if (!file) return setStatus("Choisis un fichier CV avant l'analyse.", true);
   if (file.size > 8 * 1024 * 1024) return setStatus("Le fichier est trop lourd (max 8MB).", true);
-
   try {
     setStatus("Lecture du fichier...");
     const base64Data = await readFileAsBase64(file);
@@ -257,13 +326,13 @@ async function analyzeFile() {
         language: "fr",
       }),
     });
+    const previousPhoto = state.cvData?.candidate?.photoDataUrl || "";
     state.cvData = data.cvData || state.cvData;
-    syncStateToForm();
-    if (data.fallback) {
-      setStatus(data.warning || "Analyse en fallback.", true);
-    } else {
-      setStatus(`Analyse terminee pour ${file.name}.`);
+    if (!state.cvData.candidate.photoDataUrl && previousPhoto) {
+      state.cvData.candidate.photoDataUrl = previousPhoto;
     }
+    syncStateToForm();
+    setStatus(data.fallback ? data.warning || "Analyse en fallback." : `Analyse terminee pour ${file.name}.`, Boolean(data.fallback));
   } catch (error) {
     setStatus(error.message || "Erreur d'analyse.", true);
   }
@@ -276,12 +345,13 @@ async function improveCv() {
     setImproveStatus("Amelioration en cours...");
     const data = await api("/api/cv/improve", {
       method: "POST",
-      body: JSON.stringify({
-        cvData: state.cvData,
-        focus: el.improveFocus.value.trim(),
-      }),
+      body: JSON.stringify({ cvData: state.cvData, focus: el.improveFocus.value.trim() }),
     });
+    const currentPhoto = state.cvData?.candidate?.photoDataUrl || "";
     state.cvData = data.cvData || state.cvData;
+    if (!state.cvData.candidate.photoDataUrl && currentPhoto) {
+      state.cvData.candidate.photoDataUrl = currentPhoto;
+    }
     syncStateToForm();
     const suggestions = Array.isArray(data.suggestions) && data.suggestions.length
       ? `Suggestions: ${data.suggestions.join(" | ")}`
@@ -333,10 +403,7 @@ function renderHistory(items) {
     button.textContent = `${new Date(item.createdAt).toLocaleString()} - ${item.title}${note}`;
     button.addEventListener("click", async () => {
       try {
-        const data = await api(`/api/cv/history/${encodeURIComponent(item.id)}`, {
-          method: "GET",
-          headers: {},
-        });
+        const data = await api(`/api/cv/history/${encodeURIComponent(item.id)}`, { method: "GET", headers: {} });
         state.cvData = data.version.cvData;
         syncStateToForm();
         setStatus(`Version chargee: ${item.id.slice(0, 8)}.`);
@@ -360,79 +427,138 @@ function downloadJson() {
   setStatus("Fichier JSON telecharge.");
 }
 
-function getExportTheme(templateName) {
-  if (templateName === "modern") {
-    return {
-      font: "'Trebuchet MS', 'Segoe UI', Arial, sans-serif",
-      ink: "#16212d",
-      sub: "#35506d",
-      line: "#83b0dd",
-      accentBg: "linear-gradient(90deg, #ecf4ff, #ffffff)",
-    };
-  }
-  if (templateName === "minimal") {
-    return {
-      font: "Cambria, Georgia, serif",
-      ink: "#1f1f1f",
-      sub: "#4f4f4f",
-      line: "#cfcfcf",
-      accentBg: "transparent",
-    };
-  }
-  return {
-    font: "Calibri, Arial, sans-serif",
-    ink: "#1e1e1e",
-    sub: "#3f3f3f",
-    line: "#d7d7d7",
-    accentBg: "linear-gradient(90deg, #f3f8f5, #ffffff)",
-  };
+function esc(s) {
+  return String(s || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function listBlock(title, list) {
+  const items = (list || []).map((x) => `<li>${esc(x)}</li>`).join("");
+  return items ? `<section><h3>${esc(title)}</h3><ul>${items}</ul></section>` : "";
+}
+
+function textBlock(title, text) {
+  return text ? `<section><h3>${esc(title)}</h3><p>${esc(text)}</p></section>` : "";
+}
+
+function contactItems(candidate) {
+  return [candidate.email, candidate.phone, candidate.location, candidate.linkedin, candidate.website].filter(Boolean);
+}
+
+function renderTemplateProfessional(cvData) {
+  const c = cvData.candidate;
+  const contacts = contactItems(c);
+  return `
+  <div class="doc pro">
+    <aside class="side">
+      ${c.photoDataUrl ? `<img src="${c.photoDataUrl}" class="photo" alt="photo" />` : ""}
+      ${contacts.length ? `<section><h3>Contact</h3><ul>${contacts.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></section>` : ""}
+      ${listBlock("Competences", cvData.sections.skills)}
+      ${listBlock("Langues", cvData.sections.languages)}
+      ${listBlock("Certifications", cvData.sections.certifications)}
+    </aside>
+    <main class="main">
+      ${textBlock("Profil", cvData.sections.profile)}
+      ${listBlock("Formation", cvData.sections.education)}
+      ${listBlock("Experience", cvData.sections.experience)}
+      ${listBlock("Projets", cvData.sections.projects)}
+      ${listBlock("Interets", cvData.sections.interests)}
+      ${listBlock("Autre", cvData.sections.other)}
+    </main>
+  </div>`;
+}
+
+function renderTemplateModern(cvData) {
+  const c = cvData.candidate;
+  const contacts = contactItems(c);
+  const chips = (cvData.sections.skills || []).map((x) => `<span class="chip">${esc(x)}</span>`).join("");
+  return `
+  <div class="doc modern">
+    <div class="topband">
+      ${c.photoDataUrl ? `<img src="${c.photoDataUrl}" class="photo photo-square" alt="photo" />` : ""}
+      <div class="toptext">
+        ${textBlock("Profil", cvData.sections.profile)}
+      </div>
+    </div>
+    <div class="grid">
+      <main>
+        ${listBlock("Formation", cvData.sections.education)}
+        ${listBlock("Experience", cvData.sections.experience)}
+        ${listBlock("Projets", cvData.sections.projects)}
+      </main>
+      <aside>
+        ${contacts.length ? `<section><h3>Contact</h3><ul>${contacts.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></section>` : ""}
+        ${chips ? `<section><h3>Competences</h3><div class="chips">${chips}</div></section>` : ""}
+        ${listBlock("Langues", cvData.sections.languages)}
+        ${listBlock("Certifications", cvData.sections.certifications)}
+        ${listBlock("Interets", cvData.sections.interests)}
+        ${listBlock("Autre", cvData.sections.other)}
+      </aside>
+    </div>
+  </div>`;
+}
+
+function renderTemplateMinimal(cvData) {
+  const c = cvData.candidate;
+  const contacts = contactItems(c);
+  return `
+  <div class="doc minimal">
+    ${c.photoDataUrl ? `<img src="${c.photoDataUrl}" class="photo photo-float" alt="photo" />` : ""}
+    ${contacts.length ? `<section><h3>Contact</h3><p>${contacts.map((x) => esc(x)).join(" | ")}</p></section>` : ""}
+    ${textBlock("Profil", cvData.sections.profile)}
+    ${listBlock("Formation", cvData.sections.education)}
+    ${listBlock("Experience", cvData.sections.experience)}
+    ${listBlock("Competences", cvData.sections.skills)}
+    ${listBlock("Projets", cvData.sections.projects)}
+    ${listBlock("Certifications", cvData.sections.certifications)}
+    ${listBlock("Langues", cvData.sections.languages)}
+    ${listBlock("Interets", cvData.sections.interests)}
+    ${listBlock("Autre", cvData.sections.other)}
+  </div>`;
 }
 
 function cvToHtml(cvData, templateName = "professional") {
-  const theme = getExportTheme(templateName);
-  const esc = (s) =>
-    String(s || "")
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;");
-  const block = (title, list) => {
-    const items = (list || []).map((x) => `<li>${esc(x)}</li>`).join("");
-    return items ? `<h3>${esc(title)}</h3><ul>${items}</ul>` : "";
-  };
+  const layout =
+    templateName === "modern"
+      ? renderTemplateModern(cvData)
+      : templateName === "minimal"
+      ? renderTemplateMinimal(cvData)
+      : renderTemplateProfessional(cvData);
+
   return `
 <!doctype html>
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>CV ${esc(cvData.candidate.fullName)}</title>
+  <title>CV</title>
   <style>
-    body { font-family: ${theme.font}; margin: 24px; color: ${theme.ink}; line-height: 1.35; }
-    h1 { margin: 0 0 4px; font-size: 26px; }
-    h2 { margin: 0 0 14px; font-size: 14px; font-weight: 500; color: ${theme.sub}; }
-    h3 { margin: 18px 0 6px; font-size: 16px; border-bottom: 1px solid ${theme.line}; padding-bottom: 3px; background: ${theme.accentBg}; }
-    ul { margin: 6px 0 0 18px; }
-    p { margin: 8px 0; }
-    .meta span { margin-right: 10px; }
+    @page { margin: 10mm; }
+    body { margin: 0; color: #1f1f1f; background: #fff; font-family: Arial, sans-serif; }
+    h3 { margin: 0 0 6px; text-transform: uppercase; letter-spacing: .08em; font-size: 11px; }
+    p { margin: 0 0 8px; line-height: 1.45; }
+    ul { margin: 0; padding-left: 17px; }
+    li { margin-bottom: 4px; line-height: 1.35; }
+    section { margin-bottom: 12px; break-inside: avoid; }
+    .photo { width: 110px; height: 110px; object-fit: cover; border-radius: 10px; margin-bottom: 10px; }
+    .doc.pro { display: grid; grid-template-columns: 34% 1fr; min-height: 100vh; }
+    .doc.pro .side { padding: 18px; background: #f3f7f5; border-right: 1px solid #d8e0db; }
+    .doc.pro .main { padding: 20px; }
+    .doc.modern .topband { background: linear-gradient(90deg, #173757, #2c6aa8); color: #fff; padding: 16px; display: grid; grid-template-columns: 120px 1fr; gap: 12px; }
+    .doc.modern .topband h3 { color: #d8ecff; }
+    .doc.modern .grid { display: grid; grid-template-columns: 1fr 36%; gap: 14px; padding: 14px; }
+    .doc.modern aside { background: #f0f7ff; padding: 10px; border-radius: 10px; }
+    .doc.modern .photo-square { border-radius: 14px; border: 2px solid #fff; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .chip { background: #d4e9ff; border: 1px solid #9ac4ef; border-radius: 999px; padding: 3px 8px; font-size: 11px; }
+    .doc.minimal { padding: 18px; font-family: Georgia, 'Times New Roman', serif; }
+    .doc.minimal h3 { border-bottom: 1px solid #d8d8d8; padding-bottom: 4px; }
+    .doc.minimal .photo-float { float: right; border-radius: 100px; margin-left: 12px; margin-bottom: 8px; width: 96px; height: 96px; }
   </style>
 </head>
 <body>
-  <h1>${esc(cvData.candidate.fullName || "Candidat")}</h1>
-  <h2 class="meta">
-    <span>${esc(cvData.candidate.email)}</span>
-    <span>${esc(cvData.candidate.phone)}</span>
-    <span>${esc(cvData.candidate.location)}</span>
-    <span>${esc(cvData.candidate.linkedin)}</span>
-    <span>${esc(cvData.candidate.website)}</span>
-  </h2>
-  ${cvData.sections.profile ? `<h3>Profil</h3><p>${esc(cvData.sections.profile)}</p>` : ""}
-  ${block("Formation", cvData.sections.education)}
-  ${block("Experience", cvData.sections.experience)}
-  ${block("Competences", cvData.sections.skills)}
-  ${block("Projets", cvData.sections.projects)}
-  ${block("Certifications", cvData.sections.certifications)}
-  ${block("Langues", cvData.sections.languages)}
-  ${block("Interets", cvData.sections.interests)}
-  ${block("Autre", cvData.sections.other)}
+  ${layout}
 </body>
 </html>`;
 }
@@ -454,23 +580,19 @@ function exportPdf() {
   syncFormToState();
   const html = cvToHtml(state.cvData, state.template);
   const win = window.open("", "_blank");
-  if (!win) {
-    setStatus("Popup bloquee: autorise les popups pour exporter PDF.", true);
-    return;
-  }
+  if (!win) return setStatus("Popup bloquee: autorise les popups pour exporter PDF.", true);
   win.document.write(html);
   win.document.close();
   win.focus();
-  setTimeout(() => {
-    win.print();
-  }, 250);
-  setStatus("Fenetre d'impression ouverte. Choisis 'Save as PDF'.");
+  setTimeout(() => win.print(), 250);
+  setStatus("Impression ouverte. Decoche 'Headers and footers' pour enlever date/page.");
 }
 
 el.registerBtn.addEventListener("click", register);
 el.loginBtn.addEventListener("click", login);
 el.logoutBtn.addEventListener("click", logout);
 el.analyzeBtn.addEventListener("click", analyzeFile);
+el.photoInput.addEventListener("change", handlePhotoUpload);
 el.improveBtn.addEventListener("click", improveCv);
 el.saveBtn.addEventListener("click", saveCv);
 el.refreshHistoryBtn.addEventListener("click", loadHistory);
@@ -478,6 +600,9 @@ el.jsonBtn.addEventListener("click", downloadJson);
 el.docBtn.addEventListener("click", exportDoc);
 el.pdfBtn.addEventListener("click", exportPdf);
 el.templateSelect.addEventListener("change", () => applyTemplate(el.templateSelect.value));
+el.tplProfessional.addEventListener("click", () => applyTemplate("professional"));
+el.tplModern.addEventListener("click", () => applyTemplate("modern"));
+el.tplMinimal.addEventListener("click", () => applyTemplate("minimal"));
 
 syncStateToForm();
 applyTemplate(state.template);
