@@ -25,6 +25,7 @@ const state = {
     },
   },
 };
+const LOCAL_HISTORY_KEY = "mycv_local_history_v1";
 
 const el = {
   authEmail: document.getElementById("authEmail"),
@@ -34,13 +35,12 @@ const el = {
   registerBtn: document.getElementById("registerBtn"),
   loginBtn: document.getElementById("loginBtn"),
   logoutBtn: document.getElementById("logoutBtn"),
-  improveFocus: document.getElementById("improveFocus"),
   file: document.getElementById("cvFile"),
   photoInput: document.getElementById("photoInput"),
   photoPreview: document.getElementById("photoPreview"),
   analyzeBtn: document.getElementById("analyzeBtn"),
+  previewBtn: document.getElementById("previewBtn"),
   saveBtn: document.getElementById("saveBtn"),
-  jsonBtn: document.getElementById("jsonBtn"),
   docBtn: document.getElementById("docBtn"),
   pdfBtn: document.getElementById("pdfBtn"),
   templateSelect: document.getElementById("templateSelect"),
@@ -48,10 +48,8 @@ const el = {
   tplModern: document.getElementById("tplModern"),
   tplMinimal: document.getElementById("tplMinimal"),
   templatePreview: document.getElementById("templatePreview"),
-  improveBtn: document.getElementById("improveBtn"),
   refreshHistoryBtn: document.getElementById("refreshHistoryBtn"),
   saveNote: document.getElementById("saveNote"),
-  improveStatus: document.getElementById("improveStatus"),
   historyList: document.getElementById("historyList"),
   status: document.getElementById("status"),
   fullName: document.getElementById("fullName"),
@@ -79,11 +77,6 @@ function setStatus(message, isError = false) {
 function setAuthStatus(message, isError = false) {
   el.authStatus.textContent = message;
   el.authStatus.classList.toggle("error", Boolean(isError));
-}
-
-function setImproveStatus(message, isError = false) {
-  el.improveStatus.textContent = message;
-  el.improveStatus.classList.toggle("error", Boolean(isError));
 }
 
 function setTemplateCardActive(selected) {
@@ -132,6 +125,54 @@ function getPreviewMarkup(template) {
 function updateTemplatePreview(template) {
   if (!el.templatePreview) return;
   el.templatePreview.innerHTML = getPreviewMarkup(template);
+}
+
+function localHistoryKeyForUserId(userId) {
+  return userId ? `${LOCAL_HISTORY_KEY}_${userId}` : `${LOCAL_HISTORY_KEY}_guest`;
+}
+
+function currentLocalHistoryKey() {
+  return localHistoryKeyForUserId(state.user?.id || "");
+}
+
+function readLocalHistory(userId = null) {
+  try {
+    const key = userId === null ? currentLocalHistoryKey() : localHistoryKeyForUserId(userId);
+    const raw = localStorage.getItem(key);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalHistory(items, userId = null) {
+  const key = userId === null ? currentLocalHistoryKey() : localHistoryKeyForUserId(userId);
+  localStorage.setItem(key, JSON.stringify(items.slice(0, 50)));
+}
+
+async function syncLocalHistoryToAccount() {
+  if (!state.token || !state.user?.id) return;
+  const guestItems = readLocalHistory("");
+  const userItems = readLocalHistory(state.user.id);
+  const localItems = [...guestItems, ...userItems];
+  if (!localItems.length) return;
+  try {
+    for (const item of localItems) {
+      await api("/api/cv/save", {
+        method: "PUT",
+        body: JSON.stringify({
+          cvData: item.cvData || state.cvData,
+          note: item.note || "Imported from local history",
+        }),
+      });
+    }
+    localStorage.removeItem(localHistoryKeyForUserId(""));
+    localStorage.removeItem(localHistoryKeyForUserId(state.user.id));
+    setStatus("Historique local synchronise sur ton compte.");
+  } catch {
+    setStatus("Connexion OK, mais la synchronisation locale a echoue.", true);
+  }
 }
 
 function withAuth(headers = {}) {
@@ -259,6 +300,7 @@ async function register() {
     state.user = data.user;
     localStorage.setItem("mycv_token", state.token);
     setAuthStatus(`Connecte: ${data.user.email}`);
+    await syncLocalHistoryToAccount();
     await loadHistory();
   } catch (error) {
     setAuthStatus(error.message, true);
@@ -278,6 +320,7 @@ async function login() {
     state.user = data.user;
     localStorage.setItem("mycv_token", state.token);
     setAuthStatus(`Connecte: ${data.user.email}`);
+    await syncLocalHistoryToAccount();
     await loadHistory();
   } catch (error) {
     setAuthStatus(error.message, true);
@@ -288,24 +331,54 @@ async function logout() {
   try {
     if (state.token) await api("/api/auth/logout", { method: "POST", body: JSON.stringify({}) });
   } catch {}
+  const empty = {
+    candidate: {
+      fullName: "",
+      email: "",
+      phone: "",
+      location: "",
+      linkedin: "",
+      website: "",
+      photoDataUrl: "",
+    },
+    sections: {
+      profile: "",
+      experience: [],
+      education: [],
+      skills: [],
+      projects: [],
+      certifications: [],
+      languages: [],
+      interests: [],
+      other: [],
+    },
+  };
   state.token = "";
   state.user = null;
+  state.cvData = empty;
+  syncStateToForm();
   localStorage.removeItem("mycv_token");
-  el.historyList.innerHTML = "";
   setAuthStatus("Non connecte.");
+  await loadHistory();
 }
 
 async function whoAmI() {
-  if (!state.token) return;
+  if (!state.token) {
+    setAuthStatus("Non connecte. Mode local actif.");
+    await loadHistory();
+    return;
+  }
   try {
     const data = await api("/api/auth/me", { method: "GET", headers: {} });
     state.user = data.user;
     setAuthStatus(`Connecte: ${data.user.email}`);
+    await syncLocalHistoryToAccount();
     await loadHistory();
   } catch {
     state.token = "";
     localStorage.removeItem("mycv_token");
-    setAuthStatus("Session expiree. Reconnecte-toi.", true);
+    setAuthStatus("Session expiree. Mode local actif.", true);
+    await loadHistory();
   }
 }
 
@@ -344,54 +417,58 @@ async function analyzeFile() {
   }
 }
 
-async function improveCv() {
-  if (!state.token) return setImproveStatus("Connecte-toi pour utiliser l'amelioration IA.", true);
-  try {
-    syncFormToState();
-    setImproveStatus("Amelioration en cours...");
-    const data = await api("/api/cv/improve", {
-      method: "POST",
-      body: JSON.stringify({ cvData: state.cvData, focus: el.improveFocus.value.trim() }),
-    });
-    const currentPhoto = state.cvData?.candidate?.photoDataUrl || "";
-    state.cvData = data.cvData || state.cvData;
-    if (!state.cvData.candidate.photoDataUrl && currentPhoto) {
-      state.cvData.candidate.photoDataUrl = currentPhoto;
-    }
-    syncStateToForm();
-    const suggestions = Array.isArray(data.suggestions) && data.suggestions.length
-      ? `Suggestions: ${data.suggestions.join(" | ")}`
-      : data.message;
-    setImproveStatus(data.warning ? `${data.warning} ${suggestions}` : suggestions, Boolean(data.warning));
-  } catch (error) {
-    setImproveStatus(error.message || "Echec amelioration.", true);
-  }
-}
-
 async function saveCv() {
-  if (!state.token) return setStatus("Connecte-toi avant de sauvegarder une version.", true);
+  syncFormToState();
+  const note = el.saveNote.value.trim();
+  const localItem = {
+    id: `local-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    createdAt: new Date().toISOString(),
+    note,
+    title: state.cvData?.candidate?.fullName || "CV sans nom",
+    cvData: state.cvData,
+    local: true,
+  };
+
+  if (!state.token) {
+    const history = readLocalHistory();
+    history.unshift(localItem);
+    writeLocalHistory(history);
+    setStatus(`Version locale sauvegardee (${localItem.id.slice(0, 8)}).`);
+    el.saveNote.value = "";
+    await loadHistory();
+    return;
+  }
+
   try {
-    syncFormToState();
     setStatus("Sauvegarde en cours...");
     const data = await api("/api/cv/save", {
       method: "PUT",
-      body: JSON.stringify({ cvData: state.cvData, note: el.saveNote.value.trim() }),
+      body: JSON.stringify({ cvData: state.cvData, note }),
     });
     setStatus(`Version sauvegardee (${data.version.id.slice(0, 8)}).`);
     el.saveNote.value = "";
     await loadHistory();
-  } catch (error) {
-    setStatus(error.message || "Echec sauvegarde.", true);
+  } catch {
+    const history = readLocalHistory();
+    history.unshift(localItem);
+    writeLocalHistory(history);
+    setStatus(`API indisponible: version locale sauvegardee (${localItem.id.slice(0, 8)}).`, true);
+    el.saveNote.value = "";
+    await loadHistory();
   }
 }
 
 async function loadHistory() {
-  if (!state.token) return;
+  if (!state.token) {
+    renderHistory(readLocalHistory());
+    return;
+  }
   try {
     const data = await api("/api/cv/history", { method: "GET", headers: {} });
     renderHistory(data.history || []);
-  } catch (error) {
-    setStatus(error.message || "Impossible de charger l'historique.", true);
+  } catch {
+    renderHistory(readLocalHistory(state.user?.id || ""));
+    setStatus("Historique distant indisponible: affichage local du compte courant.", true);
   }
 }
 
@@ -402,35 +479,70 @@ function renderHistory(items) {
   }
   el.historyList.innerHTML = "";
   items.forEach((item) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "history-item";
+    const card = document.createElement("div");
+    card.className = "history-item";
+    const title = document.createElement("div");
+    title.className = "history-title";
     const note = item.note ? ` - ${item.note}` : "";
-    button.textContent = `${new Date(item.createdAt).toLocaleString()} - ${item.title}${note}`;
-    button.addEventListener("click", async () => {
+    title.textContent = `${new Date(item.createdAt).toLocaleString()} - ${item.title}${note}`;
+    const actions = document.createElement("div");
+    actions.className = "history-actions";
+    const viewBtn = document.createElement("button");
+    viewBtn.type = "button";
+    viewBtn.className = "secondary";
+    viewBtn.textContent = "Voir";
+    const loadBtn = document.createElement("button");
+    loadBtn.type = "button";
+    loadBtn.textContent = "Charger";
+
+    viewBtn.addEventListener("click", async () => {
+      if (item.local && item.cvData) {
+        const html = cvToHtml(item.cvData, state.template);
+        const win = window.open("", "_blank");
+        if (!win) return setStatus("Popup bloquee: autorise les popups pour visualiser le CV.", true);
+        win.document.write(html);
+        win.document.close();
+        win.focus();
+        setStatus(`Apercu ouvert pour la version ${item.id.slice(0, 8)}.`);
+        return;
+      }
       try {
         const data = await api(`/api/cv/history/${encodeURIComponent(item.id)}`, { method: "GET", headers: {} });
-        state.cvData = data.version.cvData;
-        syncStateToForm();
-        setStatus(`Version chargee: ${item.id.slice(0, 8)}.`);
+        const html = cvToHtml(data.version.cvData, state.template);
+        const win = window.open("", "_blank");
+        if (!win) return setStatus("Popup bloquee: autorise les popups pour visualiser le CV.", true);
+        win.document.write(html);
+        win.document.close();
+        win.focus();
+        setStatus(`Apercu ouvert pour la version ${item.id.slice(0, 8)}.`);
       } catch (error) {
         setStatus(error.message, true);
       }
     });
-    el.historyList.appendChild(button);
-  });
-}
 
-function downloadJson() {
-  syncFormToState();
-  const blob = new Blob([JSON.stringify(state.cvData, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "mycv-edited.json";
-  a.click();
-  URL.revokeObjectURL(url);
-  setStatus("Fichier JSON telecharge.");
+    loadBtn.addEventListener("click", async () => {
+      if (item.local && item.cvData) {
+        state.cvData = item.cvData;
+        syncStateToForm();
+        setStatus(`Version locale chargee: ${item.id.slice(0, 8)}. Tu peux modifier puis sauvegarder.`);
+        return;
+      }
+      try {
+        const data = await api(`/api/cv/history/${encodeURIComponent(item.id)}`, { method: "GET", headers: {} });
+        state.cvData = data.version.cvData;
+        syncStateToForm();
+        setStatus(`Version chargee: ${item.id.slice(0, 8)}. Tu peux modifier puis sauvegarder.`);
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    });
+
+    actions.appendChild(viewBtn);
+    actions.appendChild(loadBtn);
+    card.appendChild(title);
+    card.appendChild(actions);
+    el.historyList.appendChild(card);
+  });
 }
 
 function esc(s) {
@@ -453,13 +565,27 @@ function contactItems(candidate) {
   return [candidate.email, candidate.phone, candidate.location, candidate.linkedin, candidate.website].filter(Boolean);
 }
 
+function profileTagline(cvData) {
+  const fromProfile = String(cvData?.sections?.profile || "").split(/[.!?\n]/)[0].trim();
+  if (fromProfile) return fromProfile.slice(0, 80);
+  return "Professional Profile";
+}
+
 function renderTemplateProfessional(cvData) {
   const c = cvData.candidate;
   const contacts = contactItems(c);
   return `
   <div class="doc pro">
+    <header class="doc-head">
+      <div class="head-wrap">
+        ${c.photoDataUrl ? `<img src="${c.photoDataUrl}" class="photo photo-head-left" alt="photo" />` : ""}
+        <div class="head-text">
+          <h1>${esc(c.fullName || "Votre Nom")}</h1>
+          <p>${esc(profileTagline(cvData))}</p>
+        </div>
+      </div>
+    </header>
     <aside class="side">
-      ${c.photoDataUrl ? `<img src="${c.photoDataUrl}" class="photo" alt="photo" />` : ""}
       ${contacts.length ? `<section><h3>Contact</h3><ul>${contacts.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></section>` : ""}
       ${listBlock("Competences", cvData.sections.skills)}
       ${listBlock("Langues", cvData.sections.languages)}
@@ -485,11 +611,13 @@ function renderTemplateModern(cvData) {
     <div class="topband">
       ${c.photoDataUrl ? `<img src="${c.photoDataUrl}" class="photo photo-square" alt="photo" />` : ""}
       <div class="toptext">
-        ${textBlock("Profil", cvData.sections.profile)}
+        <h1>${esc(c.fullName || "Votre Nom")}</h1>
+        <p class="tag">${esc(profileTagline(cvData))}</p>
       </div>
     </div>
     <div class="grid">
       <main>
+        ${textBlock("Profil", cvData.sections.profile)}
         ${listBlock("Formation", cvData.sections.education)}
         ${listBlock("Experience", cvData.sections.experience)}
         ${listBlock("Projets", cvData.sections.projects)}
@@ -511,7 +639,15 @@ function renderTemplateMinimal(cvData) {
   const contacts = contactItems(c);
   return `
   <div class="doc minimal">
-    ${c.photoDataUrl ? `<img src="${c.photoDataUrl}" class="photo photo-float" alt="photo" />` : ""}
+    <header class="doc-head">
+      <div class="head-wrap">
+        <div class="head-text">
+          <h1>${esc(c.fullName || "Votre Nom")}</h1>
+          <p>${esc(profileTagline(cvData))}</p>
+        </div>
+        ${c.photoDataUrl ? `<img src="${c.photoDataUrl}" class="photo photo-head-right" alt="photo" />` : ""}
+      </div>
+    </header>
     ${contacts.length ? `<section><h3>Contact</h3><p>${contacts.map((x) => esc(x)).join(" | ")}</p></section>` : ""}
     ${textBlock("Profil", cvData.sections.profile)}
     ${listBlock("Formation", cvData.sections.education)}
@@ -540,27 +676,66 @@ function cvToHtml(cvData, templateName = "professional") {
   <meta charset="utf-8" />
   <title>CV</title>
   <style>
-    @page { margin: 10mm; }
-    body { margin: 0; color: #1f1f1f; background: #fff; font-family: Arial, sans-serif; }
-    h3 { margin: 0 0 6px; text-transform: uppercase; letter-spacing: .08em; font-size: 11px; }
-    p { margin: 0 0 8px; line-height: 1.45; }
+    @page { size: A4; margin: 8mm; }
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { margin: 0; color: #1f2023; background: #fff; font-family: "Trebuchet MS", "Segoe UI", Tahoma, sans-serif; }
+    h1 { margin: 0; font-size: 32px; letter-spacing: .02em; line-height: 1.1; font-family: "Palatino Linotype", "Book Antiqua", Georgia, serif; }
+    h3 { margin: 0 0 8px; text-transform: uppercase; letter-spacing: .14em; font-size: 10.5px; font-weight: 700; }
+    p { margin: 0 0 9px; line-height: 1.5; }
     ul { margin: 0; padding-left: 17px; }
-    li { margin-bottom: 4px; line-height: 1.35; }
-    section { margin-bottom: 12px; break-inside: avoid; }
-    .photo { width: 110px; height: 110px; object-fit: cover; border-radius: 10px; margin-bottom: 10px; }
-    .doc.pro { display: grid; grid-template-columns: 34% 1fr; min-height: 100vh; }
-    .doc.pro .side { padding: 18px; background: #f3f7f5; border-right: 1px solid #d8e0db; }
-    .doc.pro .main { padding: 20px; }
-    .doc.modern .topband { background: linear-gradient(90deg, #173757, #2c6aa8); color: #fff; padding: 16px; display: grid; grid-template-columns: 120px 1fr; gap: 12px; }
-    .doc.modern .topband h3 { color: #d8ecff; }
-    .doc.modern .grid { display: grid; grid-template-columns: 1fr 36%; gap: 14px; padding: 14px; }
-    .doc.modern aside { background: #f0f7ff; padding: 10px; border-radius: 10px; }
-    .doc.modern .photo-square { border-radius: 14px; border: 2px solid #fff; }
-    .chips { display: flex; flex-wrap: wrap; gap: 6px; }
-    .chip { background: #d4e9ff; border: 1px solid #9ac4ef; border-radius: 999px; padding: 3px 8px; font-size: 11px; }
-    .doc.minimal { padding: 18px; font-family: Georgia, 'Times New Roman', serif; }
-    .doc.minimal h3 { border-bottom: 1px solid #d8d8d8; padding-bottom: 4px; }
-    .doc.minimal .photo-float { float: right; border-radius: 100px; margin-left: 12px; margin-bottom: 8px; width: 96px; height: 96px; }
+    li { margin-bottom: 5px; line-height: 1.4; }
+    section { margin-bottom: 14px; break-inside: avoid; }
+    .photo { width: 108px; height: 108px; object-fit: cover; border-radius: 14px; margin-bottom: 12px; }
+    .doc { border-radius: 8px; overflow: hidden; border: 1px solid #e4e6ea; background: #fff; }
+    .doc-head { grid-column: 1 / -1; padding: 20px 22px 12px; border-bottom: 1px solid #eceef2; }
+    .head-wrap { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+    .head-text { flex: 1; min-width: 0; }
+    .photo-head-left, .photo-head-right { width: 86px; height: 86px; border-radius: 50%; margin: 0; object-fit: cover; }
+    .photo-head-left { border: 2px solid #dce4ef; }
+    .photo-head-right { border: 2px solid #e5dfd4; }
+    .doc-head p { color: #545d66; font-weight: 600; margin-top: 4px; font-size: 13px; }
+    .doc section h3 { color: #37424f; }
+
+    .doc.pro { display: grid; grid-template-columns: 31% 1fr; min-height: 100vh; }
+    .doc.pro .doc-head { background: linear-gradient(180deg, #f8f8fa, #ffffff); }
+    .doc.pro .side { padding: 20px 18px; background: #1f2630; color: #eef1f5; }
+    .doc.pro .side section { margin-bottom: 16px; }
+    .doc.pro .side h3 { color: #f8fbff; border-bottom: 1px solid rgba(255,255,255,.26); padding-bottom: 6px; }
+    .doc.pro .side li { color: #dfe5ec; }
+    .doc.pro .main { padding: 20px 22px; background: #fff; }
+    .doc.pro .main h3 { border-bottom: 1px solid #e7ebf0; padding-bottom: 4px; }
+
+    .doc.modern { border-color: #d8e6e7; }
+    .doc.modern .topband {
+      background: linear-gradient(105deg, #173f47 0%, #2f6f74 65%, #3f8f96 100%);
+      color: #fff;
+      padding: 18px;
+      display: grid;
+      grid-template-columns: 120px 1fr;
+      gap: 14px;
+      align-items: center;
+    }
+    .doc.modern .toptext h1 { color: #fff; font-size: 34px; }
+    .doc.modern .topband .tag { font-size: 14px; opacity: .92; margin-top: 5px; color: #daf3f5; }
+    .doc.modern .grid { display: grid; grid-template-columns: 1fr 35%; gap: 16px; padding: 16px; background: linear-gradient(180deg, #ffffff, #f8fbfb); }
+    .doc.modern main h3 { color: #275157; border-bottom: 1px solid #d7e7e9; padding-bottom: 4px; }
+    .doc.modern aside { background: #eaf4f5; padding: 12px; border-radius: 12px; border: 1px solid #d4e5e7; }
+    .doc.modern aside h3 { color: #2f5860; }
+    .doc.modern .photo-square { border-radius: 18px; border: 2px solid #d8f0f2; }
+    .chips { display: flex; flex-wrap: wrap; gap: 7px; }
+    .chip { background: #d5eaed; border: 1px solid #9ec7cd; border-radius: 999px; padding: 3px 9px; font-size: 11px; color: #24474d; }
+
+    .doc.minimal {
+      padding: 18px 22px;
+      font-family: "Book Antiqua", Georgia, serif;
+      background:
+        linear-gradient(180deg, #fffefc 0%, #ffffff 24%),
+        repeating-linear-gradient(0deg, rgba(0,0,0,0.012) 0, rgba(0,0,0,0.012) 1px, transparent 1px, transparent 28px);
+    }
+    .doc.minimal .doc-head { padding: 4px 0 14px; border-bottom: 1px solid #ddd7cd; margin-bottom: 12px; }
+    .doc.minimal .doc-head p { color: #5d574f; }
+    .doc.minimal h3 { border-bottom: 1px solid #ddd7cd; padding-bottom: 4px; color: #4e453a; }
+    .doc.minimal p, .doc.minimal li { color: #2e2a25; }
   </style>
 </head>
 <body>
@@ -582,16 +757,75 @@ function exportDoc() {
   setStatus("Export Word termine.");
 }
 
-function exportPdf() {
+function loadScriptOnce(src) {
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector(`script[data-src="${src}"]`);
+    if (existing) {
+      if (window.html2pdf) return resolve();
+      existing.addEventListener("load", () => resolve(), { once: true });
+      existing.addEventListener("error", () => reject(new Error("Impossible de charger la librairie PDF.")), { once: true });
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = src;
+    script.async = true;
+    script.dataset.src = src;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Impossible de charger la librairie PDF."));
+    document.head.appendChild(script);
+  });
+}
+
+async function exportPdf() {
+  syncFormToState();
+  try {
+    setStatus("Preparation du PDF...");
+    await loadScriptOnce("https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js");
+    const html = cvToHtml(state.cvData, state.template);
+    const styleMatch = html.match(/<style>([\s\S]*?)<\/style>/i);
+    const bodyMatch = html.match(/<body>([\s\S]*?)<\/body>/i);
+    const container = document.createElement("div");
+    container.style.position = "fixed";
+    container.style.left = "-99999px";
+    container.style.top = "0";
+    container.style.width = "794px";
+    const styleTag = document.createElement("style");
+    styleTag.textContent = styleMatch?.[1] || "";
+    container.appendChild(styleTag);
+    const content = document.createElement("div");
+    content.innerHTML = bodyMatch?.[1] || "";
+    container.appendChild(content);
+    document.body.appendChild(container);
+
+    const fileName = `${(state.cvData.candidate.fullName || "cv").replace(/\s+/g, "_")}.pdf`;
+    await window.html2pdf()
+      .from(container)
+      .set({
+        margin: 0,
+        filename: fileName,
+        image: { type: "jpeg", quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true },
+        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+        pagebreak: { mode: ["css", "legacy"] },
+      })
+      .save();
+
+    container.remove();
+    setStatus("Export PDF termine.");
+  } catch (error) {
+    setStatus(error.message || "Echec export PDF.", true);
+  }
+}
+
+function previewCv() {
   syncFormToState();
   const html = cvToHtml(state.cvData, state.template);
   const win = window.open("", "_blank");
-  if (!win) return setStatus("Popup bloquee: autorise les popups pour exporter PDF.", true);
+  if (!win) return setStatus("Popup bloquee: autorise les popups pour visualiser le CV.", true);
   win.document.write(html);
   win.document.close();
   win.focus();
-  setTimeout(() => win.print(), 250);
-  setStatus("Impression ouverte. Decoche 'Headers and footers' pour enlever date/page.");
+  setStatus("Apercu ouvert dans un nouvel onglet.");
 }
 
 el.registerBtn.addEventListener("click", register);
@@ -599,10 +833,9 @@ el.loginBtn.addEventListener("click", login);
 el.logoutBtn.addEventListener("click", logout);
 el.analyzeBtn.addEventListener("click", analyzeFile);
 el.photoInput.addEventListener("change", handlePhotoUpload);
-el.improveBtn.addEventListener("click", improveCv);
+el.previewBtn.addEventListener("click", previewCv);
 el.saveBtn.addEventListener("click", saveCv);
 el.refreshHistoryBtn.addEventListener("click", loadHistory);
-el.jsonBtn.addEventListener("click", downloadJson);
 el.docBtn.addEventListener("click", exportDoc);
 el.pdfBtn.addEventListener("click", exportPdf);
 el.templateSelect.addEventListener("change", () => applyTemplate(el.templateSelect.value));

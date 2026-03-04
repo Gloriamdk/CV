@@ -255,11 +255,30 @@ button.secondary {
 }
 
 .history-item {
-  text-align: left;
   width: 100%;
   color: #1a2622;
   background: linear-gradient(135deg, #f3f5de, #ecf6f1);
   border: 1px solid #d1dfd2;
+  border-radius: 12px;
+  padding: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.history-title {
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.history-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.history-actions button {
+  padding: 8px 12px;
 }
 
 @media (max-width: 760px) {
