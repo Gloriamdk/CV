@@ -1166,19 +1166,34 @@ function loadScriptOnce(src) {
   return new Promise((resolve, reject) => {
     const existing = document.querySelector(`script[data-src="${src}"]`);
     if (existing) {
-      if (window.html2pdf) return resolve();
+      if (existing.getAttribute("data-ready") === "true") return resolve();
       existing.addEventListener("load", () => resolve(), { once: true });
-      existing.addEventListener("error", () => reject(new Error("Impossible de charger la librairie PDF.")), { once: true });
+      existing.addEventListener("error", () => reject(new Error("Impossible de charger la librairie.")), { once: true });
       return;
     }
     const script = document.createElement("script");
     script.src = src;
     script.async = true;
     script.dataset.src = src;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error("Impossible de charger la librairie PDF."));
+    script.onload = () => {
+      script.dataset.ready = "true";
+      resolve();
+    };
+    script.onerror = () => reject(new Error("Impossible de charger la librairie."));
     document.head.appendChild(script);
   });
+}
+
+const HTML2CANVAS_SRC = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+const JSPDF_SRC = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+
+async function ensurePdfDependencies() {
+  await loadScriptOnce(HTML2CANVAS_SRC);
+  await loadScriptOnce(JSPDF_SRC);
+  const html2canvas = window.html2canvas;
+  const jsPDF = window.jspdf?.jsPDF || window.jspdf;
+  if (!html2canvas || !jsPDF) throw new Error("Impossible de charger les librairies PDF.");
+  return { html2canvas, jsPDF };
 }
 
 async function exportPdf() {
@@ -1190,7 +1205,7 @@ async function exportPdf() {
   let exportRoot = null;
   try {
     setStatus("Preparation du PDF...");
-    await loadScriptOnce("https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js");
+    const { html2canvas, jsPDF } = await ensurePdfDependencies();
     const html = cvToHtml(state.cvData, state.template);
     const styleMatch = html.match(/<style>([\s\S]*?)<\/style>/i);
     const bodyMatch = html.match(/<body>([\s\S]*?)<\/body>/i);
@@ -1214,19 +1229,20 @@ async function exportPdf() {
     document.body.appendChild(exportRoot);
 
     const fileName = `${(state.cvData.candidate.fullName || "cv").replace(/\s+/g, "_")}.pdf`;
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    await window
-      .html2pdf()
-      .set({
-        margin: 0,
-        filename: fileName,
-        image: { type: "jpeg", quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
-        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-        pagebreak: { mode: ["css", "legacy"] },
-      })
-      .from(exportRoot)
-      .save();
+    await html2canvas(exportRoot, { scale: 2, useCORS: true, backgroundColor: "#ffffff" }).then((canvas) => {
+      const imgData = canvas.toDataURL("image/jpeg", 0.98);
+      const pdf = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      let imgWidth = pageWidth;
+      let imgHeight = (canvas.height * pageWidth) / canvas.width;
+      if (imgHeight > pageHeight) {
+        imgHeight = pageHeight;
+        imgWidth = (canvas.width * pageHeight) / canvas.height;
+      }
+      pdf.addImage(imgData, "JPEG", 0, 0, imgWidth, imgHeight);
+      pdf.save(fileName);
+    });
 
     logClientAction("cv.export.pdf", { template: state.template });
     setStatus("Export PDF termine.");
