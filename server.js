@@ -374,10 +374,27 @@ function ensureAdminUserFromEnv() {
   const users = readJsonFile(USERS_PATH, []);
   const existing = users.find((u) => u.email === adminEmail);
   if (existing) {
+    // Keep admin account in sync with env credentials on startup.
+    let changed = false;
     if (normalizeRole(existing.role) !== "admin") {
       existing.role = "admin";
-      writeJsonFile(USERS_PATH, users);
+      changed = true;
     }
+    if (normalizeAccountStatus(existing.accountStatus) !== "ACTIVE") {
+      existing.accountStatus = "ACTIVE";
+      changed = true;
+    }
+    const currentHash = hashPassword(adminPassword, existing.salt);
+    if (currentHash !== existing.passwordHash) {
+      existing.passwordHash = currentHash;
+      changed = true;
+    }
+    const nextName = adminName || existing.name || "Administrator";
+    if (String(existing.name || "") !== String(nextName)) {
+      existing.name = nextName;
+      changed = true;
+    }
+    if (changed) writeJsonFile(USERS_PATH, users);
     return;
   }
   const salt = crypto.randomBytes(16).toString("hex");
