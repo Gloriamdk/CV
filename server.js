@@ -214,7 +214,7 @@ function createUser({ email, password, name, role = "user", accountStatus = "PEN
 }
 
 function isPublicRegistrationEnabled() {
-  const raw = String(process.env.ALLOW_PUBLIC_REGISTRATION || "false").trim().toLowerCase();
+  const raw = String(process.env.ALLOW_PUBLIC_REGISTRATION || "true").trim().toLowerCase();
   return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
 }
 
