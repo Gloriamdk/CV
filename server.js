@@ -8,11 +8,17 @@ const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, "public");
 const ENV_PATH = path.join(__dirname, ".env");
 const DATA_DIR = path.join(__dirname, "data");
+const BACKUP_DIR = path.join(DATA_DIR, "backups");
 const USERS_PATH = path.join(DATA_DIR, "users.json");
 const HISTORY_PATH = path.join(DATA_DIR, "cv-history.json");
 const ACTIVITY_PATH = path.join(DATA_DIR, "activity-log.json");
 const INVITES_PATH = path.join(DATA_DIR, "invite-codes.json");
 const TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 7;
+const DEFAULT_BACKUP_INTERVAL_MS = 1000 * 60 * 60 * 2;
+const DATA_BACKUP_INTERVAL_MS = (() => {
+  const raw = Number(process.env.DATA_BACKUP_INTERVAL_MS || DEFAULT_BACKUP_INTERVAL_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_BACKUP_INTERVAL_MS;
+})();
 
 const sessions = new Map();
 
@@ -45,6 +51,36 @@ function ensureDataFiles() {
   if (!fs.existsSync(HISTORY_PATH)) fs.writeFileSync(HISTORY_PATH, "{}", "utf8");
   if (!fs.existsSync(ACTIVITY_PATH)) fs.writeFileSync(ACTIVITY_PATH, "[]", "utf8");
   if (!fs.existsSync(INVITES_PATH)) fs.writeFileSync(INVITES_PATH, "[]", "utf8");
+  if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
+}
+
+const BACKUP_SOURCES = [USERS_PATH, HISTORY_PATH, ACTIVITY_PATH, INVITES_PATH];
+
+function formatBackupTimestamp() {
+  return new Date().toISOString().replace(/[:.]/g, "-");
+}
+
+function copyDataFileForBackup(filePath, stamp) {
+  if (!fs.existsSync(filePath)) return;
+  const fileName = `${stamp}-${path.basename(filePath)}`;
+  const target = path.join(BACKUP_DIR, fileName);
+  fs.copyFileSync(filePath, target);
+}
+
+function runDataBackup(reason = "scheduled") {
+  try {
+    if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
+    const stamp = formatBackupTimestamp();
+    BACKUP_SOURCES.forEach((file) => copyDataFileForBackup(file, stamp));
+    console.log(`[data-backup] ${reason} - ${stamp}`);
+  } catch (error) {
+    console.error("[data-backup] failed", error.message);
+  }
+}
+
+function startBackupTimer() {
+  if (DATA_BACKUP_INTERVAL_MS <= 0) return;
+  setInterval(() => runDataBackup("scheduled"), DATA_BACKUP_INTERVAL_MS);
 }
 
 function readJsonFile(filePath, fallback) {
@@ -807,6 +843,8 @@ function serveStatic(req, res) {
 
 loadEnvFile(ENV_PATH);
 ensureDataFiles();
+runDataBackup("startup");
+startBackupTimer();
 migrateUsersRoles();
 ensureAdminUserFromEnv();
 
