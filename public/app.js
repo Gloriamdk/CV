@@ -1148,13 +1148,16 @@ function exportDoc() {
   if (!ensureActiveAccountForFeature()) return;
   syncFormToState();
   const html = cvToHtml(state.cvData, state.template);
-  const blob = new Blob([html], { type: "application/msword" });
+  const blob = new Blob(["\ufeff", html], { type: "application/msword;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = `${(state.cvData.candidate.fullName || "cv").replace(/\s+/g, "_")}.doc`;
+  a.style.display = "none";
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  a.remove();
   logClientAction("cv.export.doc", { template: state.template });
   setStatus("Export Word termine.");
 }
@@ -1183,43 +1186,50 @@ async function exportPdf() {
   if (!state.token) return setStatus("Connecte-toi avant d'exporter le CV.", true);
   if (!ensureActiveAccountForFeature()) return;
   syncFormToState();
+  let exportRoot = null;
   try {
     setStatus("Preparation du PDF...");
     await loadScriptOnce("https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js");
     const html = cvToHtml(state.cvData, state.template);
     const styleMatch = html.match(/<style>([\s\S]*?)<\/style>/i);
     const bodyMatch = html.match(/<body>([\s\S]*?)<\/body>/i);
-    const container = document.createElement("div");
-    container.style.position = "fixed";
-    container.style.left = "-99999px";
-    container.style.top = "0";
-    container.style.width = "794px";
+    exportRoot = document.createElement("div");
+    exportRoot.style.position = "fixed";
+    exportRoot.style.left = "0";
+    exportRoot.style.top = "0";
+    exportRoot.style.width = "794px";
+    exportRoot.style.opacity = "0";
+    exportRoot.style.pointerEvents = "none";
+    exportRoot.style.zIndex = "-1";
+    exportRoot.style.background = "#fff";
     const styleTag = document.createElement("style");
     styleTag.textContent = styleMatch?.[1] || "";
-    container.appendChild(styleTag);
+    exportRoot.appendChild(styleTag);
     const content = document.createElement("div");
     content.innerHTML = bodyMatch?.[1] || "";
-    container.appendChild(content);
-    document.body.appendChild(container);
+    exportRoot.appendChild(content);
+    document.body.appendChild(exportRoot);
 
     const fileName = `${(state.cvData.candidate.fullName || "cv").replace(/\s+/g, "_")}.pdf`;
-    await window.html2pdf()
-      .from(container)
+    await window
+      .html2pdf()
       .set({
         margin: 0,
         filename: fileName,
         image: { type: "jpeg", quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
         jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
         pagebreak: { mode: ["css", "legacy"] },
       })
+      .from(exportRoot)
       .save();
 
-    container.remove();
     logClientAction("cv.export.pdf", { template: state.template });
     setStatus("Export PDF termine.");
   } catch (error) {
     setStatus(error.message || "Echec export PDF.", true);
+  } finally {
+    if (exportRoot?.parentNode) exportRoot.remove();
   }
 }
 

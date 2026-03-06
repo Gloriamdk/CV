@@ -88,6 +88,7 @@ function renderOverview(data) {
           ${u.accountStatus === "PENDING" ? `<button type="button" class="activate-btn" data-user-id="${u.id}">ACTIVER</button>` : ""}
           ${u.accountStatus === "ACTIVE" ? `<button type="button" class="block-btn secondary" data-user-id="${u.id}">BLOQUER</button>` : ""}
           ${u.accountStatus === "BLOCKED" ? `<button type="button" class="unblock-btn" data-user-id="${u.id}">DEBLOQUER</button>` : ""}
+          ${u.role !== "admin" ? `<button type="button" class="delete-btn secondary" data-user-id="${u.id}">SUPPRIMER</button>` : ""}
         </td>
       </tr>`
     )
@@ -165,6 +166,18 @@ async function updateUserStatus(userId, accountStatus) {
   }
 }
 
+async function deleteUser(userId) {
+  const ok = window.confirm("Supprimer cet utilisateur, son historique CV et ses sessions ?");
+  if (!ok) return;
+  try {
+    await api(`/api/admin/users/${encodeURIComponent(userId)}`, { method: "DELETE", body: JSON.stringify({}) });
+    setStatus("Utilisateur supprime.");
+    await loadOverview();
+  } catch (error) {
+    setStatus(error.message || "Suppression utilisateur impossible.", true);
+  }
+}
+
 async function handleUserAction(event) {
   const target = event.target;
   if (!target) return;
@@ -173,6 +186,7 @@ async function handleUserAction(event) {
   if (target.classList.contains("activate-btn")) return updateUserStatus(userId, "ACTIVE");
   if (target.classList.contains("block-btn")) return updateUserStatus(userId, "BLOCKED");
   if (target.classList.contains("unblock-btn")) return updateUserStatus(userId, "ACTIVE");
+  if (target.classList.contains("delete-btn")) return deleteUser(userId);
 }
 
 el.refreshBtn.addEventListener("click", loadOverview);

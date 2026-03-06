@@ -345,6 +345,14 @@ function createSession(userId) {
   return token;
 }
 
+function removeSessionsByUserId(userId) {
+  for (const [token, session] of sessions.entries()) {
+    if (String(session?.userId || "") === String(userId || "")) {
+      sessions.delete(token);
+    }
+  }
+}
+
 function migrateUsersRoles() {
   const users = readJsonFile(USERS_PATH, []);
   let changed = false;
@@ -941,6 +949,41 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { message: "Statut mis a jour.", user: sanitizeUser(target) });
     } catch (error) {
       return sendJson(res, 400, { error: error.message || "Mise a jour statut impossible." });
+    }
+  }
+
+  if (req.url.startsWith("/api/admin/users/") && req.method === "DELETE") {
+    const admin = requireAdmin(req, res);
+    if (!admin) return;
+    try {
+      const parts = req.url.split("?")[0].split("/").filter(Boolean);
+      if (parts.length !== 4) {
+        // Let more specific admin DELETE routes (e.g. history item deletion) continue.
+      } else {
+      const userId = parts[3] || "";
+      if (!userId) return sendJson(res, 400, { error: "Utilisateur introuvable." });
+      if (String(userId) === String(admin.id)) {
+        return sendJson(res, 400, { error: "Tu ne peux pas supprimer ton propre compte admin." });
+      }
+
+      const users = readJsonFile(USERS_PATH, []);
+      const idx = users.findIndex((u) => u.id === userId);
+      if (idx === -1) return sendJson(res, 404, { error: "Utilisateur introuvable." });
+      const [removed] = users.splice(idx, 1);
+      writeJsonFile(USERS_PATH, users);
+
+      const historyStore = readJsonFile(HISTORY_PATH, {});
+      if (historyStore && Object.prototype.hasOwnProperty.call(historyStore, userId)) {
+        delete historyStore[userId];
+        writeJsonFile(HISTORY_PATH, historyStore);
+      }
+
+      removeSessionsByUserId(userId);
+      logActivity(admin, "admin.user.delete", { targetUserId: userId, targetEmail: removed?.email || "" });
+      return sendJson(res, 200, { message: "Utilisateur supprime.", userId });
+      }
+    } catch (error) {
+      return sendJson(res, 400, { error: error.message || "Suppression utilisateur impossible." });
     }
   }
 
