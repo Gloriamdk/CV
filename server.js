@@ -759,7 +759,8 @@ function userMetricsFromLogs(userId, logs) {
 
 function serveStatic(req, res) {
   const cleanUrl = req.url.split("?")[0];
-  const cleanPath = cleanUrl === "/" ? "/index.html" : cleanUrl;
+  const normalizedUrl = cleanUrl !== "/" ? cleanUrl.replace(/\/+$/, "") : cleanUrl;
+  const cleanPath = normalizedUrl === "/" ? "/index.html" : normalizedUrl;
   const filePath = path.normalize(path.join(PUBLIC_DIR, cleanPath));
   if (!filePath.startsWith(PUBLIC_DIR)) return sendJson(res, 403, { error: "Acces refuse." });
   fs.readFile(filePath, (error, content) => {
