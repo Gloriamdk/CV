@@ -1186,6 +1186,7 @@ async function exportPdf() {
   if (!state.token) return setStatus("Connecte-toi avant d'exporter le CV.", true);
   if (!ensureActiveAccountForFeature()) return;
   syncFormToState();
+  if (!hasCvContent(state.cvData)) return setStatus("Aucune information CV a exporter.", true);
   let exportRoot = null;
   try {
     setStatus("Preparation du PDF...");
@@ -1198,10 +1199,12 @@ async function exportPdf() {
     exportRoot.style.left = "0";
     exportRoot.style.top = "0";
     exportRoot.style.width = "794px";
-    exportRoot.style.opacity = "0";
     exportRoot.style.pointerEvents = "none";
-    exportRoot.style.zIndex = "-1";
+    exportRoot.style.zIndex = "2147483647";
     exportRoot.style.background = "#fff";
+    exportRoot.style.boxSizing = "border-box";
+    exportRoot.style.maxHeight = "100vh";
+    exportRoot.style.overflow = "auto";
     const styleTag = document.createElement("style");
     styleTag.textContent = styleMatch?.[1] || "";
     exportRoot.appendChild(styleTag);
@@ -1211,6 +1214,7 @@ async function exportPdf() {
     document.body.appendChild(exportRoot);
 
     const fileName = `${(state.cvData.candidate.fullName || "cv").replace(/\s+/g, "_")}.pdf`;
+    await new Promise((resolve) => setTimeout(resolve, 50));
     await window
       .html2pdf()
       .set({
