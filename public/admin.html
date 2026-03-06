@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MyCV Admin</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <style>
+      .admin-shell {
+        max-width: 1200px;
+        margin: 24px auto;
+        padding: 0 16px 24px;
+      }
+      .admin-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+      }
+      .admin-grid-2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+      .admin-table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      .admin-table th,
+      .admin-table td {
+        border-bottom: 1px solid #dbe6df;
+        padding: 8px;
+        text-align: left;
+        font-size: 0.9rem;
+      }
+      .pill {
+        display: inline-block;
+        border-radius: 999px;
+        padding: 3px 8px;
+        font-size: 0.78rem;
+        font-weight: 700;
+      }
+      .pill.ACTIVE { background: #d9f2e3; color: #1f6c43; }
+      .pill.PENDING { background: #fff2d9; color: #7e5600; }
+      .pill.BLOCKED { background: #ffdfe0; color: #8a1b23; }
+      .scroll {
+        max-height: 260px;
+        overflow: auto;
+      }
+      @media (max-width: 820px) {
+        .admin-grid-2 { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="admin-shell">
+      <section class="card">
+        <h2>Authentification Admin</h2>
+        <div class="grid2">
+          <label>Email <input id="authEmail" type="email" placeholder="admin@mycv.com" /></label>
+          <label>Mot de passe <input id="authPassword" type="password" placeholder="mot de passe admin" /></label>
+        </div>
+        <div class="row">
+          <button id="loginBtn" type="button">Se connecter</button>
+          <button id="logoutBtn" type="button" class="secondary">Se deconnecter</button>
+        </div>
+        <p id="authStatus" class="status muted">Non connecte.</p>
+      </section>
+
+      <section class="card">
+        <div class="admin-top">
+          <div>
+            <h1>Dashboard Administration</h1>
+            <p class="muted">Supervision de la plateforme et gestion des utilisateurs.</p>
+          </div>
+          <div class="row">
+            <button id="refreshBtn" type="button">Rafraichir</button>
+            <a href="/" class="secondary" style="padding:10px 14px;border-radius:10px;text-decoration:none;">Retour App</a>
+          </div>
+        </div>
+        <p id="adminStatus" class="status muted">Chargement...</p>
+      </section>
+
+      <section class="card">
+        <div class="admin-kpis">
+          <div class="admin-kpi"><span>Utilisateurs</span><strong id="kpiUsers">0</strong></div>
+          <div class="admin-kpi"><span>CV Total</span><strong id="kpiCv">0</strong></div>
+          <div class="admin-kpi"><span>Comptes PENDING</span><strong id="kpiPending">0</strong></div>
+          <div class="admin-kpi"><span>Comptes BLOCKED</span><strong id="kpiBlocked">0</strong></div>
+        </div>
+      </section>
+
+      <section class="card admin-grid-2">
+        <div>
+          <h2>Codes D'Invitation</h2>
+          <p class="muted">Les utilisateurs s'inscrivent eux-memes avec email + mot de passe + code.</p>
+          <div class="grid2">
+            <label>Expiration (jours)
+              <select id="inviteDays">
+                <option value="0">Sans expiration</option>
+                <option value="1">1 jour</option>
+                <option value="7" selected>7 jours</option>
+                <option value="30">30 jours</option>
+              </select>
+            </label>
+          </div>
+          <div class="row">
+            <button id="createInviteBtn" type="button">Generer Un Code</button>
+            <button id="refreshInvitesBtn" type="button" class="secondary">Rafraichir Codes</button>
+          </div>
+          <div id="invitesList" class="scroll admin-list"></div>
+        </div>
+        <div>
+          <h2>Derniers Imports CV</h2>
+          <div id="importsList" class="scroll admin-list"></div>
+          <h2>Derniers Exports PDF</h2>
+          <div id="exportsList" class="scroll admin-list"></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Utilisateurs</h2>
+        <div class="scroll">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>Email</th>
+                <th>Inscription</th>
+                <th>Role</th>
+                <th>Statut</th>
+                <th>CV Crees</th>
+                <th>Dernier Import</th>
+                <th>Dernier Export PDF</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="usersTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Historique Actions</h2>
+        <div id="actionsList" class="scroll admin-list"></div>
+      </section>
+    </main>
+    <script src="/admin.js"></script>
+  </body>
+  </html>

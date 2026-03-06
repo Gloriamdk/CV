@@ -1,6 +1,7 @@
 const state = {
   token: localStorage.getItem("mycv_token") || "",
   template: localStorage.getItem("mycv_template") || "professional",
+  language: localStorage.getItem("mycv_language") || "fr",
   user: null,
   cvData: {
     candidate: {
@@ -24,6 +25,16 @@ const state = {
       other: [],
     },
   },
+  admin: {
+    users: [],
+    histories: [],
+    logs: [],
+  },
+  authConfig: {
+    allowPublicRegistration: true,
+    adminLocalOnly: true,
+    requireInviteCode: true,
+  },
 };
 const LOCAL_HISTORY_KEY = "mycv_local_history_v1";
 
@@ -31,14 +42,18 @@ const el = {
   authEmail: document.getElementById("authEmail"),
   authName: document.getElementById("authName"),
   authPassword: document.getElementById("authPassword"),
+  authInviteCode: document.getElementById("authInviteCode"),
+  inviteCodeWrap: document.getElementById("inviteCodeWrap"),
   authStatus: document.getElementById("authStatus"),
   registerBtn: document.getElementById("registerBtn"),
   loginBtn: document.getElementById("loginBtn"),
   logoutBtn: document.getElementById("logoutBtn"),
+  adminLink: document.getElementById("adminLink"),
   file: document.getElementById("cvFile"),
   photoInput: document.getElementById("photoInput"),
   photoPreview: document.getElementById("photoPreview"),
   analyzeBtn: document.getElementById("analyzeBtn"),
+  languageSelect: document.getElementById("languageSelect"),
   previewBtn: document.getElementById("previewBtn"),
   saveBtn: document.getElementById("saveBtn"),
   docBtn: document.getElementById("docBtn"),
@@ -67,6 +82,26 @@ const el = {
   languages: document.getElementById("languages"),
   interests: document.getElementById("interests"),
   other: document.getElementById("other"),
+  adminPanel: document.getElementById("adminPanel"),
+  adminKpiUsers: document.getElementById("adminKpiUsers"),
+  adminKpiCv: document.getElementById("adminKpiCv"),
+  adminKpiActions: document.getElementById("adminKpiActions"),
+  adminKpiFallback: document.getElementById("adminKpiFallback"),
+  adminNewName: document.getElementById("adminNewName"),
+  adminNewEmail: document.getElementById("adminNewEmail"),
+  adminNewPassword: document.getElementById("adminNewPassword"),
+  adminNewRole: document.getElementById("adminNewRole"),
+  adminCreateUserBtn: document.getElementById("adminCreateUserBtn"),
+  adminRefreshBtn: document.getElementById("adminRefreshBtn"),
+  adminStatus: document.getElementById("adminStatus"),
+  adminUsersList: document.getElementById("adminUsersList"),
+  adminUserSelect: document.getElementById("adminUserSelect"),
+  adminLoadUserHistoryBtn: document.getElementById("adminLoadUserHistoryBtn"),
+  adminUserHistory: document.getElementById("adminUserHistory"),
+  adminActionFilter: document.getElementById("adminActionFilter"),
+  adminLimitFilter: document.getElementById("adminLimitFilter"),
+  adminLoadActivityBtn: document.getElementById("adminLoadActivityBtn"),
+  adminActivityList: document.getElementById("adminActivityList"),
 };
 
 function setStatus(message, isError = false) {
@@ -77,6 +112,46 @@ function setStatus(message, isError = false) {
 function setAuthStatus(message, isError = false) {
   el.authStatus.textContent = message;
   el.authStatus.classList.toggle("error", Boolean(isError));
+}
+
+function setAdminStatus(message, isError = false) {
+  if (!el.adminStatus) return;
+  el.adminStatus.textContent = message;
+  el.adminStatus.classList.toggle("error", Boolean(isError));
+}
+
+function isAdmin() {
+  return String(state.user?.role || "") === "admin";
+}
+
+function setAdminVisibility() {
+  if (!el.adminPanel) return;
+  el.adminPanel.classList.add("hidden");
+  if (el.adminLink) el.adminLink.classList.toggle("hidden", !isAdmin());
+}
+
+function applyAuthConfigUi() {
+  if (!el.registerBtn) return;
+  const allow = Boolean(state.authConfig?.allowPublicRegistration);
+  el.registerBtn.disabled = !allow;
+  el.registerBtn.title = allow ? "" : "Inscription publique desactivee. Utilise l'admin pour creer des comptes.";
+  if (el.inviteCodeWrap) el.inviteCodeWrap.style.display = state.authConfig?.requireInviteCode ? "block" : "none";
+}
+
+function accountStatusMessage() {
+  const status = String(state.user?.accountStatus || "ACTIVE");
+  if (status === "PENDING") return "Votre compte est en attente de validation par l'administrateur.";
+  if (status === "BLOCKED") return "Votre compte est bloque. Contacte l'administrateur.";
+  return "";
+}
+
+function ensureActiveAccountForFeature() {
+  const msg = accountStatusMessage();
+  if (msg) {
+    setStatus(msg, true);
+    return false;
+  }
+  return true;
 }
 
 function setTemplateCardActive(selected) {
@@ -95,6 +170,49 @@ function applyTemplate(templateName) {
   setTemplateCardActive(selected);
   localStorage.setItem("mycv_template", selected);
   updateTemplatePreview(selected);
+}
+
+function applyLanguage(lang) {
+  const allowed = ["fr", "en", "es", "de", "zh"];
+  const selected = allowed.includes(lang) ? lang : "fr";
+  state.language = selected;
+  if (el.languageSelect) el.languageSelect.value = selected;
+  localStorage.setItem("mycv_language", selected);
+}
+
+function hasCvContent(cvData) {
+  if (!cvData) return false;
+  const c = cvData.candidate || {};
+  const s = cvData.sections || {};
+  if (Object.values(c).some((v) => String(v || "").trim())) return true;
+  return Object.values(s).some((v) => (Array.isArray(v) ? v.length > 0 : String(v || "").trim()));
+}
+
+async function translateCurrentCvToLanguage() {
+  if (!state.token) return setStatus("Connecte-toi avant de traduire le CV.", true);
+  if (!ensureActiveAccountForFeature()) return;
+  syncFormToState();
+  if (!hasCvContent(state.cvData)) return;
+  try {
+    setStatus("Traduction du CV en cours...");
+    const data = await api("/api/cv/translate", {
+      method: "POST",
+      body: JSON.stringify({ cvData: state.cvData, language: state.language }),
+    });
+    const currentPhoto = state.cvData?.candidate?.photoDataUrl || "";
+    state.cvData = data.cvData || state.cvData;
+    if (!state.cvData.candidate.photoDataUrl && currentPhoto) {
+      state.cvData.candidate.photoDataUrl = currentPhoto;
+    }
+    syncStateToForm();
+    if (data.fallback) {
+      setStatus(data.warning || "Traduction indisponible, contenu conserve.", true);
+    } else {
+      setStatus("CV traduit dans la langue selectionnee.");
+    }
+  } catch (error) {
+    setStatus(error.message || "Echec traduction CV.", true);
+  }
 }
 
 function getPreviewMarkup(template) {
@@ -189,6 +307,230 @@ async function api(path, options = {}) {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data?.error || "Erreur API.");
   return data;
+}
+
+async function loadAuthConfig() {
+  try {
+    const cfg = await api("/api/auth/config", { method: "GET", headers: {} });
+    state.authConfig.allowPublicRegistration = Boolean(cfg?.allowPublicRegistration);
+    state.authConfig.adminLocalOnly = Boolean(cfg?.adminLocalOnly);
+    state.authConfig.requireInviteCode = Boolean(cfg?.requireInviteCode);
+  } catch {}
+  applyAuthConfigUi();
+}
+
+async function logClientAction(action, meta = {}) {
+  if (!state.token) return;
+  try {
+    await api("/api/activity/log", {
+      method: "POST",
+      body: JSON.stringify({ action, meta }),
+    });
+  } catch {}
+}
+
+function formatDateTime(iso) {
+  try {
+    return new Date(iso).toLocaleString();
+  } catch {
+    return String(iso || "");
+  }
+}
+
+function asMetaText(meta) {
+  if (!meta || typeof meta !== "object") return "";
+  const pairs = Object.entries(meta)
+    .slice(0, 6)
+    .map(([k, v]) => `${k}: ${String(v)}`);
+  return pairs.join(" | ");
+}
+
+function renderAdminKpis() {
+  const users = state.admin.users || [];
+  const histories = state.admin.histories || [];
+  const logs = state.admin.logs || [];
+  const now = Date.now();
+  const dayAgo = now - 24 * 60 * 60 * 1000;
+  const actions24h = logs.filter((x) => new Date(x.at).getTime() >= dayAgo);
+  const fallback24h = actions24h.filter((x) => String(x?.meta?.source || "") === "fallback");
+  const versions = histories.reduce((sum, h) => sum + Number(h.count || 0), 0);
+  if (el.adminKpiUsers) el.adminKpiUsers.textContent = String(users.length);
+  if (el.adminKpiCv) el.adminKpiCv.textContent = String(versions);
+  if (el.adminKpiActions) el.adminKpiActions.textContent = String(actions24h.length);
+  if (el.adminKpiFallback) el.adminKpiFallback.textContent = String(fallback24h.length);
+}
+
+function renderAdminUsers() {
+  if (!el.adminUsersList) return;
+  const users = state.admin.users || [];
+  const histories = state.admin.histories || [];
+  const countByUser = new Map(histories.map((h) => [h?.user?.id, Number(h?.count || 0)]));
+  if (!users.length) {
+    el.adminUsersList.innerHTML = "<p class='muted'>Aucun utilisateur.</p>";
+    return;
+  }
+  el.adminUsersList.innerHTML = users
+    .map((u) => {
+      const cvCount = countByUser.get(u.id) || 0;
+      return `
+      <div class="admin-row">
+        <strong>${u.name || "Sans nom"} - ${u.email}</strong>
+        <div class="admin-meta">Role: ${u.role || "user"} | CV: ${cvCount} | Cree le: ${formatDateTime(u.createdAt)}</div>
+      </div>`;
+    })
+    .join("");
+
+  if (el.adminUserSelect) {
+    el.adminUserSelect.innerHTML = users
+      .map((u) => `<option value="${u.id}">${u.email} (${u.role || "user"})</option>`)
+      .join("");
+  }
+}
+
+function renderAdminActivity() {
+  if (!el.adminActivityList) return;
+  const logs = state.admin.logs || [];
+  if (!logs.length) {
+    el.adminActivityList.innerHTML = "<p class='muted'>Aucune activite.</p>";
+    return;
+  }
+  el.adminActivityList.innerHTML = logs
+    .map(
+      (log) => `
+      <div class="admin-row">
+        <strong>${formatDateTime(log.at)} - ${log.action}</strong>
+        <div class="admin-meta">${log.userEmail || "unknown"} (${log.role || "user"})</div>
+        <div class="admin-meta">${asMetaText(log.meta)}</div>
+      </div>`
+    )
+    .join("");
+}
+
+function renderAdminUserHistory(user, history) {
+  if (!el.adminUserHistory) return;
+  if (!history?.length) {
+    el.adminUserHistory.innerHTML = "<p class='muted'>Aucune version pour cet utilisateur.</p>";
+    return;
+  }
+  el.adminUserHistory.innerHTML = "";
+  history.forEach((item) => {
+    const row = document.createElement("div");
+    row.className = "admin-row";
+    const title = document.createElement("strong");
+    title.textContent = `${item.title || "CV sans nom"} - ${formatDateTime(item.createdAt)}`;
+    const meta = document.createElement("div");
+    meta.className = "admin-meta";
+    meta.textContent = `${user?.email || ""} | Note: ${item.note || "-"}`;
+    const actions = document.createElement("div");
+    actions.className = "row";
+    const viewBtn = document.createElement("button");
+    viewBtn.type = "button";
+    viewBtn.className = "secondary";
+    viewBtn.textContent = "Voir";
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.textContent = "Supprimer";
+    viewBtn.addEventListener("click", () => {
+      const html = cvToHtml(item.cvData || state.cvData, state.template);
+      const win = window.open("", "_blank");
+      if (!win) return setAdminStatus("Popup bloquee pour l'apercu.", true);
+      win.document.write(html);
+      win.document.close();
+      win.focus();
+    });
+    delBtn.addEventListener("click", async () => {
+      try {
+        await api(`/api/admin/users/${encodeURIComponent(user.id)}/history/${encodeURIComponent(item.id)}`, {
+          method: "DELETE",
+          body: JSON.stringify({}),
+        });
+        setAdminStatus("Version supprimee.");
+        await loadAdminUserHistory();
+        await loadAdminDashboard();
+      } catch (error) {
+        setAdminStatus(error.message || "Suppression impossible.", true);
+      }
+    });
+    actions.appendChild(viewBtn);
+    actions.appendChild(delBtn);
+    row.appendChild(title);
+    row.appendChild(meta);
+    row.appendChild(actions);
+    el.adminUserHistory.appendChild(row);
+  });
+}
+
+async function loadAdminUserHistory() {
+  if (!isAdmin()) return;
+  const userId = String(el.adminUserSelect?.value || "");
+  if (!userId) return;
+  try {
+    const data = await api(`/api/admin/users/${encodeURIComponent(userId)}/history`, { method: "GET", headers: {} });
+    renderAdminUserHistory(data.user, data.history || []);
+  } catch (error) {
+    setAdminStatus(error.message || "Chargement historique utilisateur impossible.", true);
+  }
+}
+
+async function loadAdminActivity() {
+  if (!isAdmin()) return;
+  const action = String(el.adminActionFilter?.value || "").trim();
+  const limit = Number(el.adminLimitFilter?.value || 200);
+  const params = new URLSearchParams();
+  if (action) params.set("action", action);
+  params.set("limit", String(limit));
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  try {
+    const data = await api(`/api/admin/activity${suffix}`, { method: "GET", headers: {} });
+    state.admin.logs = Array.isArray(data.logs) ? data.logs : [];
+    renderAdminActivity();
+    renderAdminKpis();
+  } catch (error) {
+    setAdminStatus(error.message || "Chargement activite impossible.", true);
+  }
+}
+
+async function createUserByAdmin() {
+  if (!isAdmin()) return setAdminStatus("Acces admin requis.", true);
+  try {
+    const payload = {
+      name: String(el.adminNewName?.value || "").trim(),
+      email: String(el.adminNewEmail?.value || "").trim(),
+      password: String(el.adminNewPassword?.value || ""),
+      role: String(el.adminNewRole?.value || "user"),
+    };
+    if (!payload.email || !payload.password) return setAdminStatus("Email et mot de passe obligatoires.", true);
+    await api("/api/admin/users", { method: "POST", body: JSON.stringify(payload) });
+    if (el.adminNewName) el.adminNewName.value = "";
+    if (el.adminNewEmail) el.adminNewEmail.value = "";
+    if (el.adminNewPassword) el.adminNewPassword.value = "";
+    if (el.adminNewRole) el.adminNewRole.value = "user";
+    setAdminStatus("Utilisateur cree.");
+    await loadAdminDashboard();
+  } catch (error) {
+    setAdminStatus(error.message || "Creation utilisateur impossible.", true);
+  }
+}
+
+async function loadAdminDashboard() {
+  setAdminVisibility();
+  if (!isAdmin()) return;
+  try {
+    setAdminStatus("Chargement dashboard admin...");
+    const usersData = await api("/api/admin/users", { method: "GET", headers: {} });
+    const historiesData = await api("/api/admin/histories", { method: "GET", headers: {} });
+    const activityData = await api("/api/admin/activity?limit=200", { method: "GET", headers: {} });
+    state.admin.users = Array.isArray(usersData.users) ? usersData.users : [];
+    state.admin.histories = Array.isArray(historiesData.histories) ? historiesData.histories : [];
+    state.admin.logs = Array.isArray(activityData.logs) ? activityData.logs : [];
+    renderAdminKpis();
+    renderAdminUsers();
+    renderAdminActivity();
+    await loadAdminUserHistory();
+    setAdminStatus("Dashboard admin a jour.");
+  } catch (error) {
+    setAdminStatus(error.message || "Impossible de charger le dashboard admin.", true);
+  }
 }
 
 function readFileAsBase64(file) {
@@ -287,6 +629,9 @@ async function handlePhotoUpload() {
 }
 
 async function register() {
+  if (!state.authConfig.allowPublicRegistration) {
+    return setAuthStatus("Inscription publique desactivee. Demande la creation de compte a l'admin.", true);
+  }
   try {
     const data = await api("/api/auth/register", {
       method: "POST",
@@ -294,14 +639,16 @@ async function register() {
         email: el.authEmail.value.trim(),
         name: el.authName.value.trim(),
         password: el.authPassword.value,
+        inviteCode: String(el.authInviteCode?.value || "").trim(),
       }),
     });
-    state.token = data.token;
-    state.user = data.user;
-    localStorage.setItem("mycv_token", state.token);
-    setAuthStatus(`Connecte: ${data.user.email}`);
-    await syncLocalHistoryToAccount();
-    await loadHistory();
+    setAuthStatus(data?.message || "Inscription envoyee. Attends l'activation admin.");
+    if (data?.pending) {
+      state.token = "";
+      state.user = null;
+      localStorage.removeItem("mycv_token");
+      return;
+    }
   } catch (error) {
     setAuthStatus(error.message, true);
   }
@@ -319,9 +666,16 @@ async function login() {
     state.token = data.token;
     state.user = data.user;
     localStorage.setItem("mycv_token", state.token);
-    setAuthStatus(`Connecte: ${data.user.email}`);
-    await syncLocalHistoryToAccount();
-    await loadHistory();
+    const msg = accountStatusMessage();
+    const suffix = msg ? ` (${data.user.accountStatus})` : "";
+    setAuthStatus(`Connecte: ${data.user.email}${suffix}`);
+    if (msg) setStatus(msg, true);
+    setAdminVisibility();
+    await loadAdminDashboard();
+    if (!msg) {
+      await syncLocalHistoryToAccount();
+      await loadHistory();
+    }
   } catch (error) {
     setAuthStatus(error.message, true);
   }
@@ -355,34 +709,48 @@ async function logout() {
   };
   state.token = "";
   state.user = null;
+  state.admin = { users: [], histories: [], logs: [] };
   state.cvData = empty;
   syncStateToForm();
   localStorage.removeItem("mycv_token");
   setAuthStatus("Non connecte.");
+  setAdminVisibility();
   await loadHistory();
 }
 
 async function whoAmI() {
   if (!state.token) {
-    setAuthStatus("Non connecte. Mode local actif.");
-    await loadHistory();
+    setAuthStatus("Non connecte. Connecte-toi pour acceder a l'application.");
+    el.historyList.innerHTML = "<p class='muted'>Connecte-toi pour voir l'historique.</p>";
+    setAdminVisibility();
     return;
   }
   try {
     const data = await api("/api/auth/me", { method: "GET", headers: {} });
     state.user = data.user;
-    setAuthStatus(`Connecte: ${data.user.email}`);
-    await syncLocalHistoryToAccount();
-    await loadHistory();
+    const msg = accountStatusMessage();
+    const suffix = msg ? ` (${data.user.accountStatus})` : "";
+    setAuthStatus(`Connecte: ${data.user.email}${suffix}`);
+    if (msg) setStatus(msg, true);
+    setAdminVisibility();
+    await loadAdminDashboard();
+    if (!msg) {
+      await syncLocalHistoryToAccount();
+      await loadHistory();
+    }
   } catch {
     state.token = "";
+    state.user = null;
     localStorage.removeItem("mycv_token");
-    setAuthStatus("Session expiree. Mode local actif.", true);
-    await loadHistory();
+    setAuthStatus("Session expiree. Reconnecte-toi.", true);
+    el.historyList.innerHTML = "<p class='muted'>Connecte-toi pour voir l'historique.</p>";
+    setAdminVisibility();
   }
 }
 
 async function analyzeFile() {
+  if (!state.token) return setStatus("Connecte-toi avant d'utiliser l'application.", true);
+  if (!ensureActiveAccountForFeature()) return;
   const file = el.file.files?.[0];
   if (!file) return setStatus("Choisis un fichier CV avant l'analyse.", true);
   if (file.size > 8 * 1024 * 1024) return setStatus("Le fichier est trop lourd (max 8MB).", true);
@@ -396,7 +764,7 @@ async function analyzeFile() {
         fileName: file.name,
         mimeType: file.type || "application/pdf",
         base64Data,
-        language: "fr",
+        language: state.language,
       }),
     });
     const previousPhoto = state.cvData?.candidate?.photoDataUrl || "";
@@ -418,26 +786,10 @@ async function analyzeFile() {
 }
 
 async function saveCv() {
+  if (!state.token) return setStatus("Connecte-toi avant de sauvegarder une version.", true);
+  if (!ensureActiveAccountForFeature()) return;
   syncFormToState();
   const note = el.saveNote.value.trim();
-  const localItem = {
-    id: `local-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
-    createdAt: new Date().toISOString(),
-    note,
-    title: state.cvData?.candidate?.fullName || "CV sans nom",
-    cvData: state.cvData,
-    local: true,
-  };
-
-  if (!state.token) {
-    const history = readLocalHistory();
-    history.unshift(localItem);
-    writeLocalHistory(history);
-    setStatus(`Version locale sauvegardee (${localItem.id.slice(0, 8)}).`);
-    el.saveNote.value = "";
-    await loadHistory();
-    return;
-  }
 
   try {
     setStatus("Sauvegarde en cours...");
@@ -448,27 +800,34 @@ async function saveCv() {
     setStatus(`Version sauvegardee (${data.version.id.slice(0, 8)}).`);
     el.saveNote.value = "";
     await loadHistory();
-  } catch {
-    const history = readLocalHistory();
-    history.unshift(localItem);
-    writeLocalHistory(history);
-    setStatus(`API indisponible: version locale sauvegardee (${localItem.id.slice(0, 8)}).`, true);
-    el.saveNote.value = "";
-    await loadHistory();
+  } catch (error) {
+    const msg = String(error.message || "Echec sauvegarde.");
+    if (msg.includes("en attente de validation")) {
+      setStatus("Votre compte est en attente de validation par l'administrateur.", true);
+      return;
+    }
+    if (msg.includes("compte est bloque")) {
+      setStatus("Votre compte est bloque. Contacte l'administrateur.", true);
+      return;
+    }
+    setStatus(msg, true);
   }
 }
 
 async function loadHistory() {
   if (!state.token) {
-    renderHistory(readLocalHistory());
+    el.historyList.innerHTML = "<p class='muted'>Connecte-toi pour voir l'historique.</p>";
+    return;
+  }
+  if (!ensureActiveAccountForFeature()) {
+    el.historyList.innerHTML = "<p class='muted'>Compte non actif: historique indisponible.</p>";
     return;
   }
   try {
     const data = await api("/api/cv/history", { method: "GET", headers: {} });
     renderHistory(data.history || []);
-  } catch {
-    renderHistory(readLocalHistory(state.user?.id || ""));
-    setStatus("Historique distant indisponible: affichage local du compte courant.", true);
+  } catch (error) {
+    setStatus(error.message || "Impossible de charger l'historique.", true);
   }
 }
 
@@ -571,6 +930,23 @@ function profileTagline(cvData) {
   return "Professional Profile";
 }
 
+function t(key) {
+  const L = state.language || "fr";
+  const dict = {
+    profile: { fr: "Profil", en: "Profile", es: "Perfil", de: "Profil", zh: "简介" },
+    education: { fr: "Formation", en: "Education", es: "Educacion", de: "Ausbildung", zh: "教育" },
+    experience: { fr: "Experience", en: "Experience", es: "Experiencia", de: "Erfahrung", zh: "经验" },
+    skills: { fr: "Competences", en: "Skills", es: "Habilidades", de: "Fahigkeiten", zh: "技能" },
+    projects: { fr: "Projets", en: "Projects", es: "Proyectos", de: "Projekte", zh: "项目" },
+    certifications: { fr: "Certifications", en: "Certifications", es: "Certificaciones", de: "Zertifikate", zh: "证书" },
+    languages: { fr: "Langues", en: "Languages", es: "Idiomas", de: "Sprachen", zh: "语言" },
+    interests: { fr: "Interets", en: "Interests", es: "Intereses", de: "Interessen", zh: "兴趣" },
+    other: { fr: "Autre", en: "Other", es: "Otros", de: "Sonstiges", zh: "其他" },
+    contact: { fr: "Contact", en: "Contact", es: "Contacto", de: "Kontakt", zh: "联系方式" },
+  };
+  return dict[key]?.[L] || dict[key]?.fr || key;
+}
+
 function renderTemplateProfessional(cvData) {
   const c = cvData.candidate;
   const contacts = contactItems(c);
@@ -586,18 +962,18 @@ function renderTemplateProfessional(cvData) {
       </div>
     </header>
     <aside class="side">
-      ${contacts.length ? `<section><h3>Contact</h3><ul>${contacts.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></section>` : ""}
-      ${listBlock("Competences", cvData.sections.skills)}
-      ${listBlock("Langues", cvData.sections.languages)}
-      ${listBlock("Certifications", cvData.sections.certifications)}
+      ${contacts.length ? `<section><h3>${esc(t("contact"))}</h3><ul>${contacts.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></section>` : ""}
+      ${listBlock(t("skills"), cvData.sections.skills)}
+      ${listBlock(t("languages"), cvData.sections.languages)}
+      ${listBlock(t("certifications"), cvData.sections.certifications)}
     </aside>
     <main class="main">
-      ${textBlock("Profil", cvData.sections.profile)}
-      ${listBlock("Formation", cvData.sections.education)}
-      ${listBlock("Experience", cvData.sections.experience)}
-      ${listBlock("Projets", cvData.sections.projects)}
-      ${listBlock("Interets", cvData.sections.interests)}
-      ${listBlock("Autre", cvData.sections.other)}
+      ${textBlock(t("profile"), cvData.sections.profile)}
+      ${listBlock(t("education"), cvData.sections.education)}
+      ${listBlock(t("experience"), cvData.sections.experience)}
+      ${listBlock(t("projects"), cvData.sections.projects)}
+      ${listBlock(t("interests"), cvData.sections.interests)}
+      ${listBlock(t("other"), cvData.sections.other)}
     </main>
   </div>`;
 }
@@ -617,18 +993,18 @@ function renderTemplateModern(cvData) {
     </div>
     <div class="grid">
       <main>
-        ${textBlock("Profil", cvData.sections.profile)}
-        ${listBlock("Formation", cvData.sections.education)}
-        ${listBlock("Experience", cvData.sections.experience)}
-        ${listBlock("Projets", cvData.sections.projects)}
+        ${textBlock(t("profile"), cvData.sections.profile)}
+        ${listBlock(t("education"), cvData.sections.education)}
+        ${listBlock(t("experience"), cvData.sections.experience)}
+        ${listBlock(t("projects"), cvData.sections.projects)}
       </main>
       <aside>
-        ${contacts.length ? `<section><h3>Contact</h3><ul>${contacts.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></section>` : ""}
-        ${chips ? `<section><h3>Competences</h3><div class="chips">${chips}</div></section>` : ""}
-        ${listBlock("Langues", cvData.sections.languages)}
-        ${listBlock("Certifications", cvData.sections.certifications)}
-        ${listBlock("Interets", cvData.sections.interests)}
-        ${listBlock("Autre", cvData.sections.other)}
+        ${contacts.length ? `<section><h3>${esc(t("contact"))}</h3><ul>${contacts.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></section>` : ""}
+        ${chips ? `<section><h3>${esc(t("skills"))}</h3><div class="chips">${chips}</div></section>` : ""}
+        ${listBlock(t("languages"), cvData.sections.languages)}
+        ${listBlock(t("certifications"), cvData.sections.certifications)}
+        ${listBlock(t("interests"), cvData.sections.interests)}
+        ${listBlock(t("other"), cvData.sections.other)}
       </aside>
     </div>
   </div>`;
@@ -648,16 +1024,16 @@ function renderTemplateMinimal(cvData) {
         ${c.photoDataUrl ? `<img src="${c.photoDataUrl}" class="photo photo-head-right" alt="photo" />` : ""}
       </div>
     </header>
-    ${contacts.length ? `<section><h3>Contact</h3><p>${contacts.map((x) => esc(x)).join(" | ")}</p></section>` : ""}
-    ${textBlock("Profil", cvData.sections.profile)}
-    ${listBlock("Formation", cvData.sections.education)}
-    ${listBlock("Experience", cvData.sections.experience)}
-    ${listBlock("Competences", cvData.sections.skills)}
-    ${listBlock("Projets", cvData.sections.projects)}
-    ${listBlock("Certifications", cvData.sections.certifications)}
-    ${listBlock("Langues", cvData.sections.languages)}
-    ${listBlock("Interets", cvData.sections.interests)}
-    ${listBlock("Autre", cvData.sections.other)}
+    ${contacts.length ? `<section><h3>${esc(t("contact"))}</h3><p>${contacts.map((x) => esc(x)).join(" | ")}</p></section>` : ""}
+    ${textBlock(t("profile"), cvData.sections.profile)}
+    ${listBlock(t("education"), cvData.sections.education)}
+    ${listBlock(t("experience"), cvData.sections.experience)}
+    ${listBlock(t("skills"), cvData.sections.skills)}
+    ${listBlock(t("projects"), cvData.sections.projects)}
+    ${listBlock(t("certifications"), cvData.sections.certifications)}
+    ${listBlock(t("languages"), cvData.sections.languages)}
+    ${listBlock(t("interests"), cvData.sections.interests)}
+    ${listBlock(t("other"), cvData.sections.other)}
   </div>`;
 }
 
@@ -745,6 +1121,8 @@ function cvToHtml(cvData, templateName = "professional") {
 }
 
 function exportDoc() {
+  if (!state.token) return setStatus("Connecte-toi avant d'exporter le CV.", true);
+  if (!ensureActiveAccountForFeature()) return;
   syncFormToState();
   const html = cvToHtml(state.cvData, state.template);
   const blob = new Blob([html], { type: "application/msword" });
@@ -754,6 +1132,7 @@ function exportDoc() {
   a.download = `${(state.cvData.candidate.fullName || "cv").replace(/\s+/g, "_")}.doc`;
   a.click();
   URL.revokeObjectURL(url);
+  logClientAction("cv.export.doc", { template: state.template });
   setStatus("Export Word termine.");
 }
 
@@ -777,6 +1156,8 @@ function loadScriptOnce(src) {
 }
 
 async function exportPdf() {
+  if (!state.token) return setStatus("Connecte-toi avant d'exporter le CV.", true);
+  if (!ensureActiveAccountForFeature()) return;
   syncFormToState();
   try {
     setStatus("Preparation du PDF...");
@@ -811,6 +1192,7 @@ async function exportPdf() {
       .save();
 
     container.remove();
+    logClientAction("cv.export.pdf", { template: state.template });
     setStatus("Export PDF termine.");
   } catch (error) {
     setStatus(error.message || "Echec export PDF.", true);
@@ -818,6 +1200,8 @@ async function exportPdf() {
 }
 
 function previewCv() {
+  if (!state.token) return setStatus("Connecte-toi avant de visualiser le CV.", true);
+  if (!ensureActiveAccountForFeature()) return;
   syncFormToState();
   const html = cvToHtml(state.cvData, state.template);
   const win = window.open("", "_blank");
@@ -825,6 +1209,7 @@ function previewCv() {
   win.document.write(html);
   win.document.close();
   win.focus();
+  logClientAction("cv.preview", { template: state.template });
   setStatus("Apercu ouvert dans un nouvel onglet.");
 }
 
@@ -838,11 +1223,22 @@ el.saveBtn.addEventListener("click", saveCv);
 el.refreshHistoryBtn.addEventListener("click", loadHistory);
 el.docBtn.addEventListener("click", exportDoc);
 el.pdfBtn.addEventListener("click", exportPdf);
+el.adminCreateUserBtn.addEventListener("click", createUserByAdmin);
+el.adminRefreshBtn.addEventListener("click", loadAdminDashboard);
+el.adminLoadUserHistoryBtn.addEventListener("click", loadAdminUserHistory);
+el.adminLoadActivityBtn.addEventListener("click", loadAdminActivity);
+el.languageSelect.addEventListener("change", async () => {
+  const previous = state.language;
+  applyLanguage(el.languageSelect.value);
+  if (state.language !== previous) await translateCurrentCvToLanguage();
+});
 el.templateSelect.addEventListener("change", () => applyTemplate(el.templateSelect.value));
 el.tplProfessional.addEventListener("click", () => applyTemplate("professional"));
 el.tplModern.addEventListener("click", () => applyTemplate("modern"));
 el.tplMinimal.addEventListener("click", () => applyTemplate("minimal"));
 
 syncStateToForm();
+applyLanguage(state.language);
 applyTemplate(state.template);
-whoAmI();
+setAdminVisibility();
+loadAuthConfig().then(whoAmI);

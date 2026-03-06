@@ -10,6 +10,8 @@ const ENV_PATH = path.join(__dirname, ".env");
 const DATA_DIR = path.join(__dirname, "data");
 const USERS_PATH = path.join(DATA_DIR, "users.json");
 const HISTORY_PATH = path.join(DATA_DIR, "cv-history.json");
+const ACTIVITY_PATH = path.join(DATA_DIR, "activity-log.json");
+const INVITES_PATH = path.join(DATA_DIR, "invite-codes.json");
 const TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 
 const sessions = new Map();
@@ -41,6 +43,8 @@ function ensureDataFiles() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(USERS_PATH)) fs.writeFileSync(USERS_PATH, "[]", "utf8");
   if (!fs.existsSync(HISTORY_PATH)) fs.writeFileSync(HISTORY_PATH, "{}", "utf8");
+  if (!fs.existsSync(ACTIVITY_PATH)) fs.writeFileSync(ACTIVITY_PATH, "[]", "utf8");
+  if (!fs.existsSync(INVITES_PATH)) fs.writeFileSync(INVITES_PATH, "[]", "utf8");
 }
 
 function readJsonFile(filePath, fallback) {
@@ -139,6 +143,8 @@ function sanitizeUser(user) {
     id: user.id,
     email: user.email,
     name: user.name || "",
+    role: user.role === "admin" ? "admin" : "user",
+    accountStatus: normalizeAccountStatus(user.accountStatus),
     createdAt: user.createdAt,
   };
 }
@@ -151,7 +157,41 @@ function createToken() {
   return crypto.randomBytes(32).toString("hex");
 }
 
-function createUser({ email, password, name }) {
+function normalizeRole(role) {
+  return role === "admin" ? "admin" : "user";
+}
+
+function normalizeAccountStatus(status) {
+  const s = String(status || "").trim().toUpperCase();
+  if (s === "PENDING" || s === "BLOCKED" || s === "ACTIVE") return s;
+  return "ACTIVE";
+}
+
+function normalizeInviteCode(code) {
+  return String(code || "").trim().toUpperCase();
+}
+
+function invitationCodesEnabled() {
+  const raw = String(process.env.ENABLE_INVITE_CODES || "true").trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+}
+
+function invitationCodeRequired() {
+  const raw = String(process.env.REQUIRE_INVITE_CODE || "true").trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+}
+
+function isLocalRequest(req) {
+  const remote = String(req.socket?.remoteAddress || "");
+  return remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
+}
+
+function isAdminLocalOnlyEnabled() {
+  const raw = String(process.env.ADMIN_LOCAL_ONLY || "true").trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+}
+
+function createUser({ email, password, name, role = "user", accountStatus = "PENDING" }) {
   const users = readJsonFile(USERS_PATH, []);
   const normalizedEmail = String(email || "").trim().toLowerCase();
   if (!emailIsValid(normalizedEmail)) throw new Error("Email invalide.");
@@ -164,11 +204,18 @@ function createUser({ email, password, name }) {
     name: String(name || "").trim(),
     salt,
     passwordHash: hashPassword(password, salt),
+    role: normalizeRole(role),
+    accountStatus: normalizeAccountStatus(accountStatus),
     createdAt: new Date().toISOString(),
   };
   users.push(user);
   writeJsonFile(USERS_PATH, users);
   return user;
+}
+
+function isPublicRegistrationEnabled() {
+  const raw = String(process.env.ALLOW_PUBLIC_REGISTRATION || "false").trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
 }
 
 function loginUser({ email, password }) {
@@ -178,7 +225,75 @@ function loginUser({ email, password }) {
   if (!user) throw new Error("Email ou mot de passe invalide.");
   const candidateHash = hashPassword(String(password || ""), user.salt);
   if (candidateHash !== user.passwordHash) throw new Error("Email ou mot de passe invalide.");
+  if (!user.role) {
+    user.role = "user";
+    writeJsonFile(USERS_PATH, users);
+  }
+  if (!user.accountStatus) {
+    user.accountStatus = "ACTIVE";
+    writeJsonFile(USERS_PATH, users);
+  }
   return user;
+}
+
+function ensureUserActive(user, res) {
+  const status = normalizeAccountStatus(user?.accountStatus);
+  if (status === "PENDING") {
+    sendJson(res, 403, { error: "Votre compte est en attente de validation par l'administrateur." });
+    return false;
+  }
+  if (status === "BLOCKED") {
+    sendJson(res, 403, { error: "Votre compte est bloque. Contacte l'administrateur." });
+    return false;
+  }
+  return true;
+}
+
+function readInviteCodes() {
+  return readJsonFile(INVITES_PATH, []);
+}
+
+function writeInviteCodes(codes) {
+  writeJsonFile(INVITES_PATH, Array.isArray(codes) ? codes : []);
+}
+
+function isInviteExpired(invite) {
+  if (!invite?.expiresAt) return false;
+  const expires = new Date(invite.expiresAt).getTime();
+  if (!Number.isFinite(expires)) return false;
+  return Date.now() > expires;
+}
+
+function consumeInviteCode(rawCode, userEmail) {
+  const code = normalizeInviteCode(rawCode);
+  if (!code) throw new Error("Code d'invitation requis.");
+  const invites = readInviteCodes();
+  const invite = invites.find((x) => normalizeInviteCode(x.code) === code);
+  if (!invite) throw new Error("Code d'invitation invalide.");
+  if (invite.used) throw new Error("Code d'invitation deja utilise.");
+  if (isInviteExpired(invite)) throw new Error("Code d'invitation expire.");
+  invite.used = true;
+  invite.usedAt = new Date().toISOString();
+  invite.usedBy = String(userEmail || "").trim().toLowerCase();
+  writeInviteCodes(invites);
+}
+
+function createInviteCode({ createdBy, expiresAt = "" }) {
+  const code = crypto.randomBytes(5).toString("hex").toUpperCase();
+  const invite = {
+    id: crypto.randomUUID(),
+    code,
+    createdAt: new Date().toISOString(),
+    createdBy: String(createdBy || ""),
+    expiresAt: expiresAt ? new Date(expiresAt).toISOString() : "",
+    used: false,
+    usedAt: "",
+    usedBy: "",
+  };
+  const invites = readInviteCodes();
+  invites.unshift(invite);
+  writeInviteCodes(invites);
+  return invite;
 }
 
 function getAuthToken(req) {
@@ -209,10 +324,74 @@ function requireAuth(req, res) {
   return user;
 }
 
+function requireAdmin(req, res) {
+  const user = requireAuth(req, res);
+  if (!user) return null;
+  if (!ensureUserActive(user, res)) return null;
+  if (normalizeRole(user.role) !== "admin") {
+    sendJson(res, 403, { error: "Acces admin requis." });
+    return null;
+  }
+  if (isAdminLocalOnlyEnabled() && !isLocalRequest(req)) {
+    sendJson(res, 403, { error: "Acces admin autorise uniquement en local (127.0.0.1)." });
+    return null;
+  }
+  return user;
+}
+
 function createSession(userId) {
   const token = createToken();
   sessions.set(token, { userId, expiresAt: Date.now() + TOKEN_TTL_MS });
   return token;
+}
+
+function migrateUsersRoles() {
+  const users = readJsonFile(USERS_PATH, []);
+  let changed = false;
+  for (const user of users) {
+    const role = normalizeRole(user.role);
+    const accountStatus = normalizeAccountStatus(user.accountStatus);
+    if (user.role !== role) {
+      user.role = role;
+      changed = true;
+    }
+    if (user.accountStatus !== accountStatus) {
+      user.accountStatus = accountStatus;
+      changed = true;
+    }
+  }
+  if (changed) writeJsonFile(USERS_PATH, users);
+}
+
+function ensureAdminUserFromEnv() {
+  const adminEmail = String(process.env.ADMIN_EMAIL || "").trim().toLowerCase();
+  const adminPassword = String(process.env.ADMIN_PASSWORD || "");
+  const adminName = String(process.env.ADMIN_NAME || "Administrator").trim();
+  if (!adminEmail || !adminPassword) return;
+  if (!emailIsValid(adminEmail)) return;
+  if (adminPassword.length < 6) return;
+
+  const users = readJsonFile(USERS_PATH, []);
+  const existing = users.find((u) => u.email === adminEmail);
+  if (existing) {
+    if (normalizeRole(existing.role) !== "admin") {
+      existing.role = "admin";
+      writeJsonFile(USERS_PATH, users);
+    }
+    return;
+  }
+  const salt = crypto.randomBytes(16).toString("hex");
+  users.push({
+    id: crypto.randomUUID(),
+    email: adminEmail,
+    name: adminName,
+    salt,
+    passwordHash: hashPassword(adminPassword, salt),
+    role: "admin",
+    accountStatus: "ACTIVE",
+    createdAt: new Date().toISOString(),
+  });
+  writeJsonFile(USERS_PATH, users);
 }
 
 function detectContactsFromText(text) {
@@ -505,6 +684,24 @@ Contraintes:
   };
 }
 
+async function translateCvWithGoogleAI(cvData, targetLanguage) {
+  const normalized = normalizeCvData(cvData);
+  const prompt = {
+    text: `
+Tu es un traducteur professionnel de CV.
+Traduis le JSON CV ci-dessous vers la langue cible: ${targetLanguage}.
+Retourne UNIQUEMENT un JSON valide avec EXACTEMENT le meme schema.
+Contraintes:
+- Ne change pas la structure des cles.
+- Ne fabrique aucune information.
+- Traduis uniquement le contenu texte.
+`.trim(),
+  };
+  const payloadData = [{ text: JSON.stringify(normalized) }];
+  const parsed = await callGoogleJson({ prompt, payloadData });
+  return normalizeCvData(parsed?.cvData || parsed);
+}
+
 function buildHistoryItem(cvData, note) {
   const title = cvData?.candidate?.fullName || "CV sans nom";
   return {
@@ -528,6 +725,38 @@ function saveHistoryForUser(userId, list) {
   writeJsonFile(HISTORY_PATH, store);
 }
 
+function logActivity(user, action, meta = {}) {
+  const list = readJsonFile(ACTIVITY_PATH, []);
+  list.unshift({
+    id: crypto.randomUUID(),
+    at: new Date().toISOString(),
+    userId: user?.id || "",
+    userEmail: user?.email || "",
+    role: normalizeRole(user?.role),
+    action: String(action || "unknown"),
+    meta: meta && typeof meta === "object" ? meta : {},
+  });
+  writeJsonFile(ACTIVITY_PATH, list.slice(0, 5000));
+}
+
+function listRecentActions(limit = 200) {
+  const list = readJsonFile(ACTIVITY_PATH, []);
+  return list.slice(0, Math.max(1, Math.min(Number(limit || 200), 2000)));
+}
+
+function userMetricsFromLogs(userId, logs) {
+  const forUser = logs.filter((x) => String(x.userId) === String(userId));
+  const cvCreated = forUser.filter((x) => x.action === "cv.save").length;
+  const imports = forUser.filter((x) => x.action === "cv.upload");
+  const exportsPdf = forUser.filter((x) => x.action === "cv.export.pdf");
+  return {
+    cvCreated,
+    lastImportAt: imports[0]?.at || "",
+    lastImportFile: imports[0]?.meta?.fileName || "",
+    lastPdfExportAt: exportsPdf[0]?.at || "",
+  };
+}
+
 function serveStatic(req, res) {
   const cleanUrl = req.url.split("?")[0];
   const cleanPath = cleanUrl === "/" ? "/index.html" : cleanUrl;
@@ -546,6 +775,8 @@ function serveStatic(req, res) {
 
 loadEnvFile(ENV_PATH);
 ensureDataFiles();
+migrateUsersRoles();
+ensureAdminUserFromEnv();
 
 const server = http.createServer(async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -563,10 +794,23 @@ const server = http.createServer(async (req, res) => {
 
   if (req.url === "/api/auth/register" && req.method === "POST") {
     try {
+      if (!isPublicRegistrationEnabled()) {
+        return sendJson(res, 403, {
+          error: "Inscription publique desactivee. Seul un admin peut creer des comptes utilisateurs.",
+        });
+      }
       const body = await parseJsonBody(req);
-      const user = createUser(body || {});
-      const token = createSession(user.id);
-      return sendJson(res, 201, { message: "Inscription reussie.", token, user: sanitizeUser(user) });
+      const inviteCode = String(body?.inviteCode || "");
+      if (invitationCodesEnabled() && invitationCodeRequired()) {
+        consumeInviteCode(inviteCode, body?.email);
+      }
+      const user = createUser({ ...(body || {}), accountStatus: "PENDING", role: "user" });
+      logActivity(user, "auth.register", { accountStatus: "PENDING" });
+      return sendJson(res, 201, {
+        message: "Inscription enregistree. Ton compte est en attente d'activation par l'administrateur.",
+        user: sanitizeUser(user),
+        pending: true,
+      });
     } catch (error) {
       return sendJson(res, 400, { error: error.message || "Inscription impossible." });
     }
@@ -577,10 +821,19 @@ const server = http.createServer(async (req, res) => {
       const body = await parseJsonBody(req);
       const user = loginUser(body || {});
       const token = createSession(user.id);
+      logActivity(user, "auth.login", {});
       return sendJson(res, 200, { message: "Connexion reussie.", token, user: sanitizeUser(user) });
     } catch (error) {
       return sendJson(res, 401, { error: error.message || "Connexion impossible." });
     }
+  }
+
+  if (req.url === "/api/auth/config" && req.method === "GET") {
+    return sendJson(res, 200, {
+      allowPublicRegistration: isPublicRegistrationEnabled(),
+      adminLocalOnly: isAdminLocalOnlyEnabled(),
+      requireInviteCode: invitationCodesEnabled() && invitationCodeRequired(),
+    });
   }
 
   if (req.url === "/api/auth/me" && req.method === "GET") {
@@ -590,27 +843,203 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.url === "/api/auth/logout" && req.method === "POST") {
+    const user = getSessionUser(req);
     const token = getAuthToken(req);
     if (token) sessions.delete(token);
+    if (user) logActivity(user, "auth.logout", {});
     return sendJson(res, 200, { message: "Deconnecte." });
+  }
+
+  if (req.url === "/api/admin/users" && req.method === "GET") {
+    const admin = requireAdmin(req, res);
+    if (!admin) return;
+    const users = readJsonFile(USERS_PATH, []).map((u) => sanitizeUser(u));
+    return sendJson(res, 200, { users });
+  }
+
+  if (req.url === "/api/admin/users" && req.method === "POST") {
+    const admin = requireAdmin(req, res);
+    if (!admin) return;
+    return sendJson(res, 403, {
+      error: "Creation manuelle des comptes desactivee. Utilise l'inscription utilisateur avec code d'invitation.",
+    });
+  }
+
+  if (req.url === "/api/admin/invite-codes" && req.method === "GET") {
+    const admin = requireAdmin(req, res);
+    if (!admin) return;
+    const invites = readInviteCodes()
+      .map((x) => ({
+        id: x.id,
+        code: x.code,
+        createdAt: x.createdAt,
+        createdBy: x.createdBy || "",
+        expiresAt: x.expiresAt || "",
+        used: Boolean(x.used),
+        usedAt: x.usedAt || "",
+        usedBy: x.usedBy || "",
+        expired: isInviteExpired(x),
+      }))
+      .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    return sendJson(res, 200, { invites });
+  }
+
+  if (req.url === "/api/admin/invite-codes" && req.method === "POST") {
+    const admin = requireAdmin(req, res);
+    if (!admin) return;
+    try {
+      const body = await parseJsonBody(req);
+      const days = Number(body?.expiresInDays || 0);
+      let expiresAt = "";
+      if (Number.isFinite(days) && days > 0) {
+        const dt = new Date();
+        dt.setDate(dt.getDate() + Math.min(days, 365));
+        expiresAt = dt.toISOString();
+      }
+      const invite = createInviteCode({ createdBy: admin.email, expiresAt });
+      logActivity(admin, "admin.invite.create", { inviteId: invite.id, code: invite.code, expiresAt: invite.expiresAt || "" });
+      return sendJson(res, 201, { message: "Code d'invitation cree.", invite });
+    } catch (error) {
+      return sendJson(res, 400, { error: error.message || "Creation code impossible." });
+    }
+  }
+
+  if (req.url.startsWith("/api/admin/users/") && req.url.endsWith("/status") && req.method === "PUT") {
+    const admin = requireAdmin(req, res);
+    if (!admin) return;
+    try {
+      const parts = req.url.split("?")[0].split("/").filter(Boolean);
+      const userId = parts[3] || "";
+      const body = await parseJsonBody(req);
+      const nextStatus = normalizeAccountStatus(body?.accountStatus);
+      const users = readJsonFile(USERS_PATH, []);
+      const target = users.find((u) => u.id === userId);
+      if (!target) return sendJson(res, 404, { error: "Utilisateur introuvable." });
+      target.accountStatus = nextStatus;
+      writeJsonFile(USERS_PATH, users);
+      logActivity(admin, "admin.user.status", { targetUserId: userId, accountStatus: nextStatus });
+      return sendJson(res, 200, { message: "Statut mis a jour.", user: sanitizeUser(target) });
+    } catch (error) {
+      return sendJson(res, 400, { error: error.message || "Mise a jour statut impossible." });
+    }
+  }
+
+  if (req.url.startsWith("/api/admin/activity") && req.method === "GET") {
+    const admin = requireAdmin(req, res);
+    if (!admin) return;
+    const parsedUrl = new URL(req.url, "http://localhost");
+    const userId = String(parsedUrl.searchParams.get("userId") || "").trim();
+    const action = String(parsedUrl.searchParams.get("action") || "").trim();
+    const limit = Math.min(Math.max(Number(parsedUrl.searchParams.get("limit") || 200), 1), 1000);
+    let logs = readJsonFile(ACTIVITY_PATH, []);
+    if (userId) logs = logs.filter((x) => String(x.userId) === userId);
+    if (action) logs = logs.filter((x) => String(x.action) === action);
+    return sendJson(res, 200, { logs: logs.slice(0, limit) });
+  }
+
+  if (req.url === "/api/admin/overview" && req.method === "GET") {
+    const admin = requireAdmin(req, res);
+    if (!admin) return;
+    const users = readJsonFile(USERS_PATH, []);
+    const histories = readJsonFile(HISTORY_PATH, {});
+    const logs = listRecentActions(500);
+    const usersWithMetrics = users.map((u) => {
+      const list = Array.isArray(histories[u.id]) ? histories[u.id] : [];
+      return {
+        ...sanitizeUser(u),
+        cvCount: list.length,
+        ...userMetricsFromLogs(u.id, logs),
+      };
+    });
+    const totalCv = usersWithMetrics.reduce((sum, u) => sum + Number(u.cvCount || 0), 0);
+    const pendingUsers = usersWithMetrics.filter((u) => u.accountStatus === "PENDING").length;
+    const blockedUsers = usersWithMetrics.filter((u) => u.accountStatus === "BLOCKED").length;
+    const recentImports = logs.filter((x) => x.action === "cv.upload").slice(0, 30);
+    const recentExportsPdf = logs.filter((x) => x.action === "cv.export.pdf").slice(0, 30);
+    const recentActions = logs.slice(0, 200);
+    return sendJson(res, 200, {
+      kpis: {
+        totalUsers: usersWithMetrics.length,
+        totalCv,
+        pendingUsers,
+        blockedUsers,
+      },
+      users: usersWithMetrics,
+      recentImports,
+      recentExportsPdf,
+      recentActions,
+    });
+  }
+
+  if (req.url === "/api/admin/histories" && req.method === "GET") {
+    const admin = requireAdmin(req, res);
+    if (!admin) return;
+    const users = readJsonFile(USERS_PATH, []);
+    const store = readJsonFile(HISTORY_PATH, {});
+    const histories = users.map((u) => {
+      const list = Array.isArray(store[u.id]) ? store[u.id] : [];
+      return {
+        user: sanitizeUser(u),
+        count: list.length,
+        history: list.map((item) => ({
+          id: item.id,
+          createdAt: item.createdAt,
+          note: item.note || "",
+          title: item.title || "CV sans nom",
+        })),
+      };
+    });
+    return sendJson(res, 200, { histories });
+  }
+
+  if (req.url.startsWith("/api/admin/users/") && req.url.endsWith("/history") && req.method === "GET") {
+    const admin = requireAdmin(req, res);
+    if (!admin) return;
+    const parts = req.url.split("?")[0].split("/").filter(Boolean);
+    const userId = parts[3] || "";
+    const users = readJsonFile(USERS_PATH, []);
+    const target = users.find((u) => u.id === userId);
+    if (!target) return sendJson(res, 404, { error: "Utilisateur introuvable." });
+    const history = listHistoryForUser(userId);
+    return sendJson(res, 200, { user: sanitizeUser(target), history });
+  }
+
+  if (req.url.startsWith("/api/admin/users/") && req.url.includes("/history/") && req.method === "DELETE") {
+    const admin = requireAdmin(req, res);
+    if (!admin) return;
+    const parts = req.url.split("?")[0].split("/").filter(Boolean);
+    const userId = parts[3] || "";
+    const versionId = parts[5] || "";
+    if (!userId || !versionId) return sendJson(res, 400, { error: "Parametres manquants." });
+    const history = listHistoryForUser(userId);
+    const next = history.filter((item) => item.id !== versionId);
+    if (next.length === history.length) return sendJson(res, 404, { error: "Version introuvable." });
+    saveHistoryForUser(userId, next);
+    return sendJson(res, 200, { message: "Version supprimee.", userId, versionId });
   }
 
   if (req.url === "/api/cv/analyze" && req.method === "POST") {
     try {
+      const user = requireAuth(req, res);
+      if (!user) return;
+      if (!ensureUserActive(user, res)) return;
       const body = await parseJsonBody(req);
       const fileName = body?.fileName || "";
       const mimeType = body?.mimeType || "";
       const base64Data = body?.base64Data || "";
       const language = body?.language || "fr";
       if (!fileName || !base64Data) return sendJson(res, 400, { error: "fileName et base64Data sont obligatoires." });
+      logActivity(user, "cv.upload", { fileName, mimeType });
 
       try {
         const cvData = await analyzeCvWithGoogleAI({ fileName, mimeType, base64Data, language });
+        logActivity(user, "cv.analyze", { fileName, language, source: "google-ai" });
         return sendJson(res, 200, { message: "Analyse terminee", fileName, cvData, source: "google-ai", fallback: false });
       } catch (error) {
         const isQuota = error?.statusCode === 429 || String(error.message || "").includes("429");
         const cvData = buildFallbackCvData({ base64Data });
         if (isQuota) {
+          logActivity(user, "cv.analyze", { fileName, language, source: "fallback", reason: "quota" });
           return sendJson(res, 200, {
             message: "Quota Google AI depasse. Passage en mode fallback.",
             warning:
@@ -627,6 +1056,7 @@ const server = http.createServer(async (req, res) => {
           403: "Google AI a refuse l'acces (403). Verifie API activee, projet et billing Google.",
           404: "Modele Google AI introuvable (404). Verifie GOOGLE_AI_MODEL/GOOGLE_AI_MODELS.",
         };
+        logActivity(user, "cv.analyze", { fileName, language, source: "fallback", reason: "error" });
         return sendJson(res, 200, {
           message: "Analyse IA indisponible. Passage en mode fallback.",
           warning:
@@ -647,11 +1077,13 @@ const server = http.createServer(async (req, res) => {
     try {
       const user = requireAuth(req, res);
       if (!user) return;
+      if (!ensureUserActive(user, res)) return;
       const body = await parseJsonBody(req);
       const inputCv = normalizeCvData(body?.cvData || {});
       const focus = String(body?.focus || "").trim();
       try {
         const improved = await improveWithGoogleAI(inputCv, focus);
+        logActivity(user, "cv.improve", { source: "google-ai", focus });
         return sendJson(res, 200, {
           message: "CV ameliore avec IA.",
           ...improved,
@@ -659,6 +1091,7 @@ const server = http.createServer(async (req, res) => {
         });
       } catch (error) {
         const local = improveLocally(inputCv, focus);
+        logActivity(user, "cv.improve", { source: "fallback", focus });
         return sendJson(res, 200, {
           message: "Amelioration locale appliquee (fallback).",
           warning: error?.statusCode === 429 ? "Quota Google AI depasse pendant l'amelioration." : "Google AI indisponible.",
@@ -671,10 +1104,64 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  if (req.url === "/api/cv/translate" && req.method === "POST") {
+    try {
+      const user = requireAuth(req, res);
+      if (!user) return;
+      if (!ensureUserActive(user, res)) return;
+      const body = await parseJsonBody(req);
+      const inputCv = normalizeCvData(body?.cvData || {});
+      const language = String(body?.language || "fr").trim();
+      try {
+        const translated = await translateCvWithGoogleAI(inputCv, language);
+        logActivity(user, "cv.translate", { language, source: "google-ai" });
+        return sendJson(res, 200, {
+          message: "CV traduit avec IA.",
+          cvData: translated,
+          source: "google-ai",
+          fallback: false,
+        });
+      } catch (error) {
+        logActivity(user, "cv.translate", { language, source: "fallback" });
+        return sendJson(res, 200, {
+          message: "Traduction IA indisponible. CV conserve sans traduction.",
+          warning: error?.statusCode === 429 ? "Quota Google AI depasse pendant la traduction." : "Google AI indisponible.",
+          cvData: inputCv,
+          source: "fallback",
+          fallback: true,
+        });
+      }
+    } catch (error) {
+      return sendJson(res, 500, { error: error.message || "Echec traduction CV." });
+    }
+  }
+
+  if (req.url === "/api/activity/log" && req.method === "POST") {
+    try {
+      const user = requireAuth(req, res);
+      if (!user) return;
+      if (!ensureUserActive(user, res)) return;
+      const body = await parseJsonBody(req);
+      const action = String(body?.action || "").trim();
+      const allowed = new Set([
+        "cv.export.pdf",
+        "cv.export.doc",
+        "cv.preview",
+      ]);
+      if (!allowed.has(action)) return sendJson(res, 400, { error: "Action non autorisee." });
+      const meta = body?.meta && typeof body.meta === "object" ? body.meta : {};
+      logActivity(user, action, meta);
+      return sendJson(res, 200, { message: "Action journalisee." });
+    } catch (error) {
+      return sendJson(res, 400, { error: error.message || "Journalisation impossible." });
+    }
+  }
+
   if (req.url === "/api/cv/save" && req.method === "PUT") {
     try {
       const user = requireAuth(req, res);
       if (!user) return;
+      if (!ensureUserActive(user, res)) return;
       const body = await parseJsonBody(req);
       const cvData = normalizeCvData(body?.cvData || {});
       const note = String(body?.note || "").trim();
@@ -685,6 +1172,7 @@ const server = http.createServer(async (req, res) => {
       const item = buildHistoryItem(cvData, note);
       history.unshift(item);
       saveHistoryForUser(user.id, history.slice(0, 50));
+      logActivity(user, "cv.save", { versionId: item.id, title: item.title });
 
       return sendJson(res, 200, {
         message: "CV sauvegarde et version historisee.",
@@ -699,6 +1187,8 @@ const server = http.createServer(async (req, res) => {
   if (req.url === "/api/cv/history" && req.method === "GET") {
     const user = requireAuth(req, res);
     if (!user) return;
+    if (!ensureUserActive(user, res)) return;
+    logActivity(user, "cv.history.list", {});
     const history = listHistoryForUser(user.id).map((item) => ({
       id: item.id,
       createdAt: item.createdAt,
@@ -711,10 +1201,12 @@ const server = http.createServer(async (req, res) => {
   if (req.url.startsWith("/api/cv/history/") && req.method === "GET") {
     const user = requireAuth(req, res);
     if (!user) return;
+    if (!ensureUserActive(user, res)) return;
     const id = decodeURIComponent(req.url.split("/").pop() || "");
     const history = listHistoryForUser(user.id);
     const item = history.find((x) => x.id === id);
     if (!item) return sendJson(res, 404, { error: "Version introuvable." });
+    logActivity(user, "cv.history.get", { versionId: id });
     return sendJson(res, 200, { version: item });
   }
 

@@ -19,11 +19,13 @@
           <label>Email <input id="authEmail" type="email" placeholder="nom@email.com" /></label>
           <label>Nom (inscription) <input id="authName" type="text" placeholder="Ton nom" /></label>
           <label>Mot de passe <input id="authPassword" type="password" placeholder="minimum 6 caracteres" /></label>
+          <label id="inviteCodeWrap">Code d'invitation <input id="authInviteCode" type="text" placeholder="code invite" /></label>
         </div>
         <div class="row">
           <button id="registerBtn" type="button">S'inscrire</button>
           <button id="loginBtn" type="button">Se connecter</button>
           <button id="logoutBtn" type="button" class="secondary">Se deconnecter</button>
+          <a id="adminLink" href="/admin.html" class="secondary hidden" style="padding:10px 14px;border-radius:10px;text-decoration:none;">Admin</a>
         </div>
         <p id="authStatus" class="status">Non connecte.</p>
       </section>
@@ -32,6 +34,15 @@
         <h2>2) Upload CV</h2>
         <p class="hint">Formats recommandes: PDF. Si quota IA depasse, l'app passe en mode fallback.</p>
         <div class="row">
+          <label class="template-label">Langue
+            <select id="languageSelect">
+              <option value="fr">Francais</option>
+              <option value="en">Anglais</option>
+              <option value="es">Espagnol</option>
+              <option value="de">Allemand</option>
+              <option value="zh">Chinois</option>
+            </select>
+          </label>
           <input id="cvFile" type="file" accept=".pdf,.doc,.docx,.txt" />
           <button id="analyzeBtn" type="button">Analyser avec Google AI</button>
         </div>
@@ -105,6 +116,79 @@
           <button id="refreshHistoryBtn" type="button">Rafraichir historique</button>
         </div>
         <div id="historyList" class="history"></div>
+      </section>
+
+      <section id="adminPanel" class="card admin-panel hidden">
+        <h2>5) Admin Dashboard</h2>
+        <div class="admin-kpis">
+          <div class="admin-kpi"><span>Utilisateurs</span><strong id="adminKpiUsers">0</strong></div>
+          <div class="admin-kpi"><span>Versions CV</span><strong id="adminKpiCv">0</strong></div>
+          <div class="admin-kpi"><span>Actions (24h)</span><strong id="adminKpiActions">0</strong></div>
+          <div class="admin-kpi"><span>Fallback IA (24h)</span><strong id="adminKpiFallback">0</strong></div>
+        </div>
+
+        <div class="admin-grid">
+          <div class="admin-block">
+            <h3>Creer Un Utilisateur</h3>
+            <label>Nom <input id="adminNewName" type="text" placeholder="Nom utilisateur" /></label>
+            <label>Email <input id="adminNewEmail" type="email" placeholder="email@domaine.com" /></label>
+            <label>Mot de passe <input id="adminNewPassword" type="password" placeholder="min 6 caracteres" /></label>
+            <label>Role
+              <select id="adminNewRole">
+                <option value="user">user</option>
+                <option value="admin">admin</option>
+              </select>
+            </label>
+            <div class="row">
+              <button id="adminCreateUserBtn" type="button">Creer Compte</button>
+              <button id="adminRefreshBtn" type="button" class="secondary">Rafraichir Donnees</button>
+            </div>
+            <p id="adminStatus" class="status muted">Connecte en admin pour controler les utilisateurs.</p>
+          </div>
+
+          <div class="admin-block">
+            <h3>Utilisateurs</h3>
+            <div id="adminUsersList" class="admin-list"></div>
+          </div>
+        </div>
+
+        <div class="admin-grid">
+          <div class="admin-block">
+            <h3>Historique Utilisateur</h3>
+            <div class="row">
+              <label class="template-label">Utilisateur
+                <select id="adminUserSelect"></select>
+              </label>
+              <button id="adminLoadUserHistoryBtn" type="button">Charger Historique</button>
+            </div>
+            <div id="adminUserHistory" class="admin-list"></div>
+          </div>
+
+          <div class="admin-block">
+            <h3>Activite</h3>
+            <div class="row">
+              <label class="template-label">Action
+                <select id="adminActionFilter">
+                  <option value="">Toutes</option>
+                  <option value="auth.login">auth.login</option>
+                  <option value="cv.analyze">cv.analyze</option>
+                  <option value="cv.translate">cv.translate</option>
+                  <option value="cv.improve">cv.improve</option>
+                  <option value="cv.save">cv.save</option>
+                </select>
+              </label>
+              <label class="template-label">Limite
+                <select id="adminLimitFilter">
+                  <option value="100">100</option>
+                  <option value="200" selected>200</option>
+                  <option value="500">500</option>
+                </select>
+              </label>
+              <button id="adminLoadActivityBtn" type="button">Charger Activite</button>
+            </div>
+            <div id="adminActivityList" class="admin-list"></div>
+          </div>
+        </div>
       </section>
     </main>
 

@@ -281,6 +281,78 @@ button.secondary {
   padding: 8px 12px;
 }
 
+.hidden {
+  display: none;
+}
+
+.admin-panel h3 {
+  margin: 0 0 10px;
+}
+
+.admin-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.admin-kpi {
+  border: 1px solid #d4e0d8;
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: linear-gradient(145deg, #f8fcfa, #eef6f1);
+}
+
+.admin-kpi span {
+  display: block;
+  font-size: 0.82rem;
+  color: #456154;
+}
+
+.admin-kpi strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 1.3rem;
+}
+
+.admin-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.admin-block {
+  border: 1px solid #d8e4dd;
+  border-radius: 12px;
+  padding: 12px;
+  background: #fbfefa;
+}
+
+.admin-list {
+  max-height: 290px;
+  overflow: auto;
+  display: grid;
+  gap: 8px;
+}
+
+.admin-row {
+  border: 1px solid #d4dfd8;
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #fff;
+  font-size: 0.92rem;
+}
+
+.admin-row strong {
+  display: block;
+}
+
+.admin-meta {
+  color: #526a5e;
+  font-size: 0.82rem;
+}
+
 @media (max-width: 760px) {
   .template-grid {
     grid-template-columns: 1fr;
@@ -292,5 +364,10 @@ button.secondary {
 
   .layout {
     margin-top: 14px;
+  }
+
+  .admin-kpis,
+  .admin-grid {
+    grid-template-columns: 1fr;
   }
 }
