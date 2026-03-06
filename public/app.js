@@ -33,17 +33,20 @@ const state = {
   authConfig: {
     allowPublicRegistration: true,
     adminLocalOnly: true,
-    requireInviteCode: true,
   },
 };
 const LOCAL_HISTORY_KEY = "mycv_local_history_v1";
+const IS_APP_PAGE = window.location.pathname.endsWith("/app.html");
+
+function syncTokenFromStorage() {
+  const latest = localStorage.getItem("mycv_token") || "";
+  if (latest !== state.token) state.token = latest;
+}
 
 const el = {
   authEmail: document.getElementById("authEmail"),
   authName: document.getElementById("authName"),
   authPassword: document.getElementById("authPassword"),
-  authInviteCode: document.getElementById("authInviteCode"),
-  inviteCodeWrap: document.getElementById("inviteCodeWrap"),
   authStatus: document.getElementById("authStatus"),
   registerBtn: document.getElementById("registerBtn"),
   loginBtn: document.getElementById("loginBtn"),
@@ -105,11 +108,13 @@ const el = {
 };
 
 function setStatus(message, isError = false) {
+  if (!el.status) return;
   el.status.textContent = message;
   el.status.classList.toggle("error", Boolean(isError));
 }
 
 function setAuthStatus(message, isError = false) {
+  if (!el.authStatus) return;
   el.authStatus.textContent = message;
   el.authStatus.classList.toggle("error", Boolean(isError));
 }
@@ -135,7 +140,6 @@ function applyAuthConfigUi() {
   const allow = Boolean(state.authConfig?.allowPublicRegistration);
   el.registerBtn.disabled = !allow;
   el.registerBtn.title = allow ? "" : "Inscription publique desactivee. Utilise l'admin pour creer des comptes.";
-  if (el.inviteCodeWrap) el.inviteCodeWrap.style.display = state.authConfig?.requireInviteCode ? "block" : "none";
 }
 
 function accountStatusMessage() {
@@ -294,6 +298,7 @@ async function syncLocalHistoryToAccount() {
 }
 
 function withAuth(headers = {}) {
+  syncTokenFromStorage();
   const h = { ...headers };
   if (state.token) h.Authorization = `Bearer ${state.token}`;
   return h;
@@ -314,7 +319,6 @@ async function loadAuthConfig() {
     const cfg = await api("/api/auth/config", { method: "GET", headers: {} });
     state.authConfig.allowPublicRegistration = Boolean(cfg?.allowPublicRegistration);
     state.authConfig.adminLocalOnly = Boolean(cfg?.adminLocalOnly);
-    state.authConfig.requireInviteCode = Boolean(cfg?.requireInviteCode);
   } catch {}
   applyAuthConfigUi();
 }
@@ -639,7 +643,6 @@ async function register() {
         email: el.authEmail.value.trim(),
         name: el.authName.value.trim(),
         password: el.authPassword.value,
-        inviteCode: String(el.authInviteCode?.value || "").trim(),
       }),
     });
     setAuthStatus(data?.message || "Inscription envoyee. Attends l'activation admin.");
@@ -719,9 +722,14 @@ async function logout() {
 }
 
 async function whoAmI() {
+  syncTokenFromStorage();
   if (!state.token) {
+    if (IS_APP_PAGE) {
+      window.location.href = "/auth.html";
+      return;
+    }
     setAuthStatus("Non connecte. Connecte-toi pour acceder a l'application.");
-    el.historyList.innerHTML = "<p class='muted'>Connecte-toi pour voir l'historique.</p>";
+    if (el.historyList) el.historyList.innerHTML = "<p class='muted'>Connecte-toi pour voir l'historique.</p>";
     setAdminVisibility();
     return;
   }
@@ -732,6 +740,13 @@ async function whoAmI() {
     const suffix = msg ? ` (${data.user.accountStatus})` : "";
     setAuthStatus(`Connecte: ${data.user.email}${suffix}`);
     if (msg) setStatus(msg, true);
+    if (IS_APP_PAGE && msg) {
+      window.location.href = "/pending.html";
+      return;
+    }
+    if (IS_APP_PAGE && !msg) {
+      // stay here
+    }
     setAdminVisibility();
     await loadAdminDashboard();
     if (!msg) {
@@ -742,13 +757,18 @@ async function whoAmI() {
     state.token = "";
     state.user = null;
     localStorage.removeItem("mycv_token");
+    if (IS_APP_PAGE) {
+      window.location.href = "/auth.html";
+      return;
+    }
     setAuthStatus("Session expiree. Reconnecte-toi.", true);
-    el.historyList.innerHTML = "<p class='muted'>Connecte-toi pour voir l'historique.</p>";
+    if (el.historyList) el.historyList.innerHTML = "<p class='muted'>Connecte-toi pour voir l'historique.</p>";
     setAdminVisibility();
   }
 }
 
 async function analyzeFile() {
+  syncTokenFromStorage();
   if (!state.token) return setStatus("Connecte-toi avant d'utiliser l'application.", true);
   if (!ensureActiveAccountForFeature()) return;
   const file = el.file.files?.[0];
@@ -786,6 +806,7 @@ async function analyzeFile() {
 }
 
 async function saveCv() {
+  syncTokenFromStorage();
   if (!state.token) return setStatus("Connecte-toi avant de sauvegarder une version.", true);
   if (!ensureActiveAccountForFeature()) return;
   syncFormToState();
@@ -815,6 +836,7 @@ async function saveCv() {
 }
 
 async function loadHistory() {
+  syncTokenFromStorage();
   if (!state.token) {
     el.historyList.innerHTML = "<p class='muted'>Connecte-toi pour voir l'historique.</p>";
     return;
@@ -1121,6 +1143,7 @@ function cvToHtml(cvData, templateName = "professional") {
 }
 
 function exportDoc() {
+  syncTokenFromStorage();
   if (!state.token) return setStatus("Connecte-toi avant d'exporter le CV.", true);
   if (!ensureActiveAccountForFeature()) return;
   syncFormToState();
@@ -1156,6 +1179,7 @@ function loadScriptOnce(src) {
 }
 
 async function exportPdf() {
+  syncTokenFromStorage();
   if (!state.token) return setStatus("Connecte-toi avant d'exporter le CV.", true);
   if (!ensureActiveAccountForFeature()) return;
   syncFormToState();
@@ -1200,6 +1224,7 @@ async function exportPdf() {
 }
 
 function previewCv() {
+  syncTokenFromStorage();
   if (!state.token) return setStatus("Connecte-toi avant de visualiser le CV.", true);
   if (!ensureActiveAccountForFeature()) return;
   syncFormToState();
@@ -1213,32 +1238,36 @@ function previewCv() {
   setStatus("Apercu ouvert dans un nouvel onglet.");
 }
 
-el.registerBtn.addEventListener("click", register);
-el.loginBtn.addEventListener("click", login);
-el.logoutBtn.addEventListener("click", logout);
-el.analyzeBtn.addEventListener("click", analyzeFile);
-el.photoInput.addEventListener("change", handlePhotoUpload);
-el.previewBtn.addEventListener("click", previewCv);
-el.saveBtn.addEventListener("click", saveCv);
-el.refreshHistoryBtn.addEventListener("click", loadHistory);
-el.docBtn.addEventListener("click", exportDoc);
-el.pdfBtn.addEventListener("click", exportPdf);
-el.adminCreateUserBtn.addEventListener("click", createUserByAdmin);
-el.adminRefreshBtn.addEventListener("click", loadAdminDashboard);
-el.adminLoadUserHistoryBtn.addEventListener("click", loadAdminUserHistory);
-el.adminLoadActivityBtn.addEventListener("click", loadAdminActivity);
-el.languageSelect.addEventListener("change", async () => {
+function bind(node, event, handler) {
+  if (node) node.addEventListener(event, handler);
+}
+
+bind(el.registerBtn, "click", register);
+bind(el.loginBtn, "click", login);
+bind(el.logoutBtn, "click", logout);
+bind(el.analyzeBtn, "click", analyzeFile);
+bind(el.photoInput, "change", handlePhotoUpload);
+bind(el.previewBtn, "click", previewCv);
+bind(el.saveBtn, "click", saveCv);
+bind(el.refreshHistoryBtn, "click", loadHistory);
+bind(el.docBtn, "click", exportDoc);
+bind(el.pdfBtn, "click", exportPdf);
+bind(el.adminCreateUserBtn, "click", createUserByAdmin);
+bind(el.adminRefreshBtn, "click", loadAdminDashboard);
+bind(el.adminLoadUserHistoryBtn, "click", loadAdminUserHistory);
+bind(el.adminLoadActivityBtn, "click", loadAdminActivity);
+bind(el.languageSelect, "change", async () => {
   const previous = state.language;
   applyLanguage(el.languageSelect.value);
   if (state.language !== previous) await translateCurrentCvToLanguage();
 });
-el.templateSelect.addEventListener("change", () => applyTemplate(el.templateSelect.value));
-el.tplProfessional.addEventListener("click", () => applyTemplate("professional"));
-el.tplModern.addEventListener("click", () => applyTemplate("modern"));
-el.tplMinimal.addEventListener("click", () => applyTemplate("minimal"));
+bind(el.templateSelect, "change", () => applyTemplate(el.templateSelect.value));
+bind(el.tplProfessional, "click", () => applyTemplate("professional"));
+bind(el.tplModern, "click", () => applyTemplate("modern"));
+bind(el.tplMinimal, "click", () => applyTemplate("minimal"));
 
-syncStateToForm();
-applyLanguage(state.language);
-applyTemplate(state.template);
+if (el.fullName) syncStateToForm();
+if (el.languageSelect) applyLanguage(state.language);
+if (el.templateSelect) applyTemplate(state.template);
 setAdminVisibility();
 loadAuthConfig().then(whoAmI);

@@ -12,10 +12,6 @@ const el = {
   kpiCv: document.getElementById("kpiCv"),
   kpiPending: document.getElementById("kpiPending"),
   kpiBlocked: document.getElementById("kpiBlocked"),
-  inviteDays: document.getElementById("inviteDays"),
-  createInviteBtn: document.getElementById("createInviteBtn"),
-  refreshInvitesBtn: document.getElementById("refreshInvitesBtn"),
-  invitesList: document.getElementById("invitesList"),
   importsList: document.getElementById("importsList"),
   exportsList: document.getElementById("exportsList"),
   usersTableBody: document.getElementById("usersTableBody"),
@@ -89,11 +85,9 @@ function renderOverview(data) {
         <td>${u.lastImportAt ? fmt(u.lastImportAt) : "-"}</td>
         <td>${u.lastPdfExportAt ? fmt(u.lastPdfExportAt) : "-"}</td>
         <td>
-          <select data-user-id="${u.id}" class="status-select">
-            <option value="ACTIVE" ${u.accountStatus === "ACTIVE" ? "selected" : ""}>ACTIVE</option>
-            <option value="PENDING" ${u.accountStatus === "PENDING" ? "selected" : ""}>PENDING</option>
-            <option value="BLOCKED" ${u.accountStatus === "BLOCKED" ? "selected" : ""}>BLOCKED</option>
-          </select>
+          ${u.accountStatus === "PENDING" ? `<button type="button" class="activate-btn" data-user-id="${u.id}">ACTIVER</button>` : ""}
+          ${u.accountStatus === "ACTIVE" ? `<button type="button" class="block-btn secondary" data-user-id="${u.id}">BLOQUER</button>` : ""}
+          ${u.accountStatus === "BLOCKED" ? `<button type="button" class="unblock-btn" data-user-id="${u.id}">DEBLOQUER</button>` : ""}
         </td>
       </tr>`
     )
@@ -113,25 +107,6 @@ function renderOverview(data) {
     : "<p class='muted'>Aucune action.</p>";
 }
 
-function renderInvites(invites) {
-  if (!el.invitesList) return;
-  const list = Array.isArray(invites) ? invites : [];
-  if (!list.length) {
-    el.invitesList.innerHTML = "<p class='muted'>Aucun code.</p>";
-    return;
-  }
-  el.invitesList.innerHTML = list
-    .map((i) => {
-      const status = i.used ? `Utilise (${i.usedBy || "-"})` : i.expired ? "Expire" : "Disponible";
-      return `<div class="admin-row">
-        <strong>${i.code}</strong>
-        <div class="admin-meta">Cree: ${fmt(i.createdAt)} | Expire: ${i.expiresAt ? fmt(i.expiresAt) : "Jamais"}</div>
-        <div class="admin-meta">${status}</div>
-      </div>`;
-    })
-    .join("");
-}
-
 async function loadOverview() {
   try {
     setStatus("Chargement du dashboard admin...");
@@ -144,7 +119,6 @@ async function loadOverview() {
     setAuthStatus(`Connecte: ${me.user.email}`);
     const overview = await api("/api/admin/overview", { method: "GET", headers: {} });
     renderOverview(overview);
-    await loadInvites();
     setStatus("Dashboard admin a jour.");
   } catch (error) {
     setStatus(error.message || "Impossible de charger le dashboard.", true);
@@ -178,31 +152,7 @@ async function logout() {
   setStatus("Connecte-toi pour charger le dashboard admin.", true);
 }
 
-async function createInvite() {
-  try {
-    const expiresInDays = Number(el.inviteDays?.value || 0);
-    await api("/api/admin/invite-codes", { method: "POST", body: JSON.stringify({ expiresInDays }) });
-    setStatus("Code d'invitation cree.");
-    await loadInvites();
-  } catch (error) {
-    setStatus(error.message || "Creation code impossible.", true);
-  }
-}
-
-async function loadInvites() {
-  try {
-    const data = await api("/api/admin/invite-codes", { method: "GET", headers: {} });
-    renderInvites(data.invites || []);
-  } catch (error) {
-    setStatus(error.message || "Chargement codes impossible.", true);
-  }
-}
-
-async function updateStatusFromSelect(event) {
-  const target = event.target;
-  if (!target.classList.contains("status-select")) return;
-  const userId = target.getAttribute("data-user-id");
-  const accountStatus = target.value;
+async function updateUserStatus(userId, accountStatus) {
   try {
     await api(`/api/admin/users/${encodeURIComponent(userId)}/status`, {
       method: "PUT",
@@ -215,10 +165,18 @@ async function updateStatusFromSelect(event) {
   }
 }
 
+async function handleUserAction(event) {
+  const target = event.target;
+  if (!target) return;
+  const userId = target.getAttribute("data-user-id");
+  if (!userId) return;
+  if (target.classList.contains("activate-btn")) return updateUserStatus(userId, "ACTIVE");
+  if (target.classList.contains("block-btn")) return updateUserStatus(userId, "BLOCKED");
+  if (target.classList.contains("unblock-btn")) return updateUserStatus(userId, "ACTIVE");
+}
+
 el.refreshBtn.addEventListener("click", loadOverview);
-el.createInviteBtn.addEventListener("click", createInvite);
-el.refreshInvitesBtn.addEventListener("click", loadInvites);
-el.usersTableBody.addEventListener("change", updateStatusFromSelect);
+el.usersTableBody.addEventListener("click", handleUserAction);
 el.loginBtn.addEventListener("click", login);
 el.logoutBtn.addEventListener("click", logout);
 

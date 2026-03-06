@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MyCV - Compte En Attente</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="layout">
+      <section class="card">
+        <h1>Compte En Attente De Validation</h1>
+        <p id="pendingMessage" class="status error">Votre compte est en attente de validation par l'administrateur.</p>
+        <div class="row">
+          <button id="refreshBtn" type="button">Verifier Mon Statut</button>
+          <button id="logoutBtn" type="button" class="secondary">Se deconnecter</button>
+          <a href="/auth.html" class="secondary" style="padding:10px 14px;border-radius:10px;text-decoration:none;">Retour Auth</a>
+        </div>
+      </section>
+    </main>
+    <script src="/pending.js"></script>
+  </body>
+  </html>

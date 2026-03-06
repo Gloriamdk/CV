@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MyCV - Application</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="layout">
+      <header class="hero">
+        <h1>MyCV</h1>
+        <p>Espace utilisateur: gestion de CV.</p>
+        <div class="row">
+          <button id="logoutBtn" type="button" class="secondary">Se deconnecter</button>
+        </div>
+        <p id="authStatus" class="status muted"></p>
+      </header>
+
+      <section class="card">
+        <h2>1) Upload CV</h2>
+        <p class="hint">Formats recommandes: PDF. Si quota IA depasse, l'app passe en mode fallback.</p>
+        <div class="row">
+          <label class="template-label">Langue
+            <select id="languageSelect">
+              <option value="fr">Francais</option>
+              <option value="en">Anglais</option>
+              <option value="es">Espagnol</option>
+              <option value="de">Allemand</option>
+              <option value="zh">Chinois</option>
+            </select>
+          </label>
+          <input id="cvFile" type="file" accept=".pdf,.doc,.docx,.txt" />
+          <button id="analyzeBtn" type="button">Analyser avec Google AI</button>
+        </div>
+        <p id="status" class="status">En attente d'un fichier...</p>
+      </section>
+
+      <section class="card">
+        <h2>2) Edition CV</h2>
+        <div class="template-grid">
+          <button id="tplProfessional" type="button" class="template-card" data-template="professional">
+            <strong>Gradient Burst</strong>
+            <span>Colonnes dynamiques, accent couleur et motifs doux.</span>
+          </button>
+          <button id="tplModern" type="button" class="template-card" data-template="modern">
+            <strong>Split Accent</strong>
+            <span>Sidebar texturee + contenus colores.</span>
+          </button>
+          <button id="tplMinimal" type="button" class="template-card" data-template="minimal">
+            <strong>Mono Grid</strong>
+            <span>Grille modulable, palette monochrome et typographie nette.</span>
+          </button>
+        </div>
+        <div class="row">
+          <label class="template-label">Template actif
+            <select id="templateSelect">
+              <option value="professional">Corporate Clean</option>
+              <option value="modern">Creative Split</option>
+              <option value="minimal">Editorial Minimal</option>
+            </select>
+          </label>
+          <label class="template-label">Photo CV
+            <input id="photoInput" type="file" accept="image/png,image/jpeg,image/webp" />
+          </label>
+          <img id="photoPreview" class="photo-preview" alt="Apercu photo CV" />
+        </div>
+        <div class="template-preview">
+          <div id="templatePreview" class="preview-window"></div>
+          <div class="preview-hint">Inspire-toi d'un rendu final avant de sauvegarder.</div>
+        </div>
+        <div class="grid2">
+          <label>Nom complet <input id="fullName" type="text" /></label>
+          <label>Email <input id="email" type="email" /></label>
+          <label>Telephone <input id="phone" type="text" /></label>
+          <label>Localisation <input id="location" type="text" /></label>
+          <label>LinkedIn <input id="linkedin" type="text" /></label>
+          <label>Site web <input id="website" type="text" /></label>
+        </div>
+
+        <label>Profil<textarea id="profile" rows="4"></textarea></label>
+        <label>Formation (1 ligne = 1 entree)<textarea id="education" rows="5"></textarea></label>
+        <label>Experience (1 ligne = 1 entree)<textarea id="experience" rows="5"></textarea></label>
+        <label>Competences (1 ligne = 1 entree)<textarea id="skills" rows="5"></textarea></label>
+        <label>Projets (1 ligne = 1 entree)<textarea id="projects" rows="5"></textarea></label>
+        <label>Certifications (1 ligne = 1 entree)<textarea id="certifications" rows="4"></textarea></label>
+        <label>Langues (1 ligne = 1 entree)<textarea id="languages" rows="4"></textarea></label>
+        <label>Centres d'interet (1 ligne = 1 entree)<textarea id="interests" rows="4"></textarea></label>
+        <label>Autre (1 ligne = 1 entree)<textarea id="other" rows="4"></textarea></label>
+
+        <div class="row">
+          <input id="saveNote" type="text" class="note" placeholder="Note de version (optionnel)" />
+          <button id="previewBtn" type="button">Visualiser</button>
+          <button id="saveBtn" type="button">Sauvegarder version</button>
+          <button id="docBtn" type="button" class="secondary">Exporter Word (.doc)</button>
+          <button id="pdfBtn" type="button" class="secondary">Exporter PDF</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>3) Historique</h2>
+        <div class="row">
+          <button id="refreshHistoryBtn" type="button">Rafraichir historique</button>
+        </div>
+        <div id="historyList" class="history"></div>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+  </html>

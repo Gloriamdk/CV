@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MyCV - Authentification</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="layout">
+      <header class="hero">
+        <h1>MyCV</h1>
+        <p>Connexion requise avant d'acceder a l'application CV.</p>
+      </header>
+
+      <section class="card">
+        <h2>Authentification</h2>
+        <div class="grid2">
+          <label>Email <input id="authEmail" type="email" placeholder="nom@email.com" /></label>
+          <label>Nom (inscription) <input id="authName" type="text" placeholder="Ton nom" /></label>
+          <label>Mot de passe <input id="authPassword" type="password" placeholder="minimum 6 caracteres" /></label>
+        </div>
+        <div class="row">
+          <button id="registerBtn" type="button">S'inscrire</button>
+          <button id="loginBtn" type="button">Se connecter</button>
+          <button id="logoutBtn" type="button" class="secondary">Se deconnecter</button>
+        </div>
+        <p id="authStatus" class="status">Non connecte.</p>
+      </section>
+    </main>
+    <script src="/auth.js"></script>
+  </body>
+  </html>

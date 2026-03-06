@@ -800,10 +800,6 @@ const server = http.createServer(async (req, res) => {
         });
       }
       const body = await parseJsonBody(req);
-      const inviteCode = String(body?.inviteCode || "");
-      if (invitationCodesEnabled() && invitationCodeRequired()) {
-        consumeInviteCode(inviteCode, body?.email);
-      }
       const user = createUser({ ...(body || {}), accountStatus: "PENDING", role: "user" });
       logActivity(user, "auth.register", { accountStatus: "PENDING" });
       return sendJson(res, 201, {
@@ -832,7 +828,7 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, {
       allowPublicRegistration: isPublicRegistrationEnabled(),
       adminLocalOnly: isAdminLocalOnlyEnabled(),
-      requireInviteCode: invitationCodesEnabled() && invitationCodeRequired(),
+      requireInviteCode: false,
     });
   }
 
