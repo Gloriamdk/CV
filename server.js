@@ -768,7 +768,13 @@ function serveStatic(req, res) {
       return sendJson(res, 500, { error: "Erreur serveur." });
     }
     const ext = path.extname(filePath).toLowerCase();
-    res.writeHead(200, { "Content-Type": MIME_TYPES[ext] || "application/octet-stream" });
+    const headers = { "Content-Type": MIME_TYPES[ext] || "application/octet-stream" };
+    if (ext === ".html" || ext === ".js" || ext === ".css") {
+      headers["Cache-Control"] = "no-store, no-cache, must-revalidate, proxy-revalidate";
+      headers.Pragma = "no-cache";
+      headers.Expires = "0";
+    }
+    res.writeHead(200, headers);
     res.end(content);
   });
 }

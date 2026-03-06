@@ -3,6 +3,7 @@ const state = {
   config: {
     allowPublicRegistration: true,
   },
+  busy: false,
 };
 
 const el = {
@@ -16,8 +17,20 @@ const el = {
 };
 
 function setAuthStatus(message, isError = false) {
+  if (!el.authStatus) return;
   el.authStatus.textContent = message;
   el.authStatus.classList.toggle("error", Boolean(isError));
+}
+
+function setBusy(nextBusy) {
+  state.busy = Boolean(nextBusy);
+  if (el.registerBtn) el.registerBtn.disabled = state.busy || !state.config.allowPublicRegistration;
+  if (el.loginBtn) el.loginBtn.disabled = state.busy;
+  if (el.logoutBtn) el.logoutBtn.disabled = state.busy;
+}
+
+function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || "").trim());
 }
 
 async function api(path, options = {}) {
@@ -38,8 +51,10 @@ function accountMessage(user) {
 
 function applyConfigUi() {
   const allow = Boolean(state.config.allowPublicRegistration);
-  el.registerBtn.disabled = !allow;
-  el.registerBtn.title = allow ? "" : "Inscription desactivee.";
+  if (el.registerBtn) {
+    el.registerBtn.disabled = state.busy || !allow;
+    el.registerBtn.title = allow ? "" : "Inscription desactivee.";
+  }
 }
 
 async function loadConfig() {
@@ -67,27 +82,43 @@ async function whoAmI() {
 }
 
 async function register() {
+  if (state.busy) return;
   if (!state.config.allowPublicRegistration) {
     return setAuthStatus("Inscription desactivee. Contacte l'administrateur.", true);
   }
+  const email = String(el.authEmail?.value || "").trim();
+  const name = String(el.authName?.value || "").trim();
+  const password = String(el.authPassword?.value || "");
+  if (!isValidEmail(email)) return setAuthStatus("Entre un email valide.", true);
+  if (!name) return setAuthStatus("Entre ton nom pour l'inscription.", true);
+  if (password.length < 6) return setAuthStatus("Mot de passe trop court (minimum 6 caracteres).", true);
   try {
+    setBusy(true);
     const body = {
-      email: el.authEmail.value.trim(),
-      name: el.authName.value.trim(),
-      password: el.authPassword.value,
+      email,
+      name,
+      password,
     };
     const data = await api("/api/auth/register", { method: "POST", body: JSON.stringify(body) });
     setAuthStatus(data?.message || "Inscription enregistree.");
   } catch (error) {
     setAuthStatus(error.message || "Inscription impossible.", true);
+  } finally {
+    setBusy(false);
   }
 }
 
 async function login() {
+  if (state.busy) return;
+  const email = String(el.authEmail?.value || "").trim();
+  const password = String(el.authPassword?.value || "");
+  if (!isValidEmail(email)) return setAuthStatus("Entre un email valide.", true);
+  if (!password) return setAuthStatus("Entre ton mot de passe.", true);
   try {
+    setBusy(true);
     const body = {
-      email: el.authEmail.value.trim(),
-      password: el.authPassword.value,
+      email,
+      password,
     };
     const data = await api("/api/auth/login", { method: "POST", body: JSON.stringify(body) });
     state.token = data.token;
@@ -100,6 +131,8 @@ async function login() {
     window.location.href = "/app.html";
   } catch (error) {
     setAuthStatus(error.message || "Connexion impossible.", true);
+  } finally {
+    setBusy(false);
   }
 }
 
@@ -112,8 +145,18 @@ async function logout() {
   setAuthStatus("Non connecte.");
 }
 
-el.registerBtn.addEventListener("click", register);
-el.loginBtn.addEventListener("click", login);
-el.logoutBtn.addEventListener("click", logout);
+if (el.registerBtn) el.registerBtn.addEventListener("click", register);
+if (el.loginBtn) el.loginBtn.addEventListener("click", login);
+if (el.logoutBtn) el.logoutBtn.addEventListener("click", logout);
+if (el.authPassword) {
+  el.authPassword.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") login();
+  });
+}
+if (el.authEmail) {
+  el.authEmail.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") login();
+  });
+}
 
 loadConfig().then(whoAmI);
